@@ -1,0 +1,219 @@
+---
+title: "Intro to R Markdown"
+author: "Julian Oolman"
+output: 
+  html_document:
+    toc: yes
+    number_sections: true
+date: "Collaborated with ___________"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Section 1
+***
+## This is one.one
+### not 1.1.2
+#### Not in the table of contents
+
+
+# Markdown Basics
+*********************************************
+
+Markdown is an easy-to-read text formatting language that converts plain text into a pretty document.
+R Markdown is R's version of Markdown that can incorporate, execute, and output R code in the final "knitted" document.
+To knit the document type `Ctrl_Shift-K`
+
+## Writing Text
+************************************************
+
+This is how to write in Markdown.
+Notice writing on the next line of code stays in the same paragraph.
+
+This is how to start a new paragraph.
+
+Wrap your words in \* to get *italics*.
+Using two \*s will produce **boldface**.
+You can combine \_ in any order to get *__boldfaced italics__*.
+
+There are other things we can do too, like making lists.
+
+1. Item 1
+2. Item two
+    b. notice we had to press tab twice
+        - You can choose whether you use numbers of letters, but R Markdown chooses symbols for you :'(
+        
+This is how we type inline code like `R`'s base function `plot()`, which is not as pretty as `ggplot2`'s `ggplot()`.
+
+## Manual Tables
+*********************************************
+
+| Region | GDP | Unemployment Rate |
+| --- | --- | --- |
+| Narnia | 10 | 5 |
+| Hogwarts | ? | -42 |
+
+| Region | GDP | Unemployment Rate |
+| ---: | :--- | :---: |
+| Narnia | 10 | 5 |
+| Hogwarts | ? | -42 |
+
+| Region     | GDP | Unemployment Rate |
+|------------|-----|------------------:|
+| **Narnia** | 10  |                 5 |
+| Hogwarts   | _?_ |               -42 |
+
+## LaTeX Math Integration
+***********************************
+
+To write math, we can use some *limited* $\LaTeX$ features.
+Like if  we wanted to show a regression formula inline: 
+$y_i = \beta_0 + \beta_1 x_i + \epsilon_i$.
+Alternatively, if we have some important math, we can make it stand out:
+$$
+2 + 2 = 2\times 2 = 2^2 = 4 \approx \pi
+$$
+OR, if we really want to show off knowing the geometric series identity, we can show it by `align`ing it with \&:
+$$
+\begin{align}
+  \sum_{n=0}^\infty ar^n &= a \left(  \frac{1}{1-r}  \right)  \tag{1.1} \\
+  & = \frac{a}{1-r}\\
+  & \text{for } |r| < 1
+\end{align}
+$$
+
+
+## Including Links
+****************************************
+
+If we want to link sections, we do so like this [Section 1].
+Or if we need to link a website, we do this while making sure to include the https.
+
+A really useful [resource](https:/www.bookdown.org/yihui/rmarkdown) for additional R Markdown tips and tricks.
+
+
+## Including Images
+*************************************
+
+This is how we include images in our Markdown.
+![XKCD is the best](linear_regression_2x.png)
+
+
+## Writing Code
+*******************************************
+
+Here is the basics to writing code chunks.
+```{r hello}
+print('hello world')
+```
+The first part of the curly braces tells you what language to use and the name of the code chunk.
+Then there are options, which can be set up after a comma and setting them to either `TRUE` or `FALSE`.
+Some of the major options are:
+
+- `include` - Whether or not to be included in the document
+- `echo` - Display the code
+- `results` - Displays the output of the code
+- `messages` - Displays messages from the functions (if they have them)
+
+
+Be careful when working inside of the .Rmd:
+```{r caution1}
+set.seed(474)
+
+df = data.frame(x = 1:5,
+                y = runif(5))
+df
+
+```
+
+```{r caution 2}
+df$y = df$y + 1
+df$z = c("a", "new", "column", "of", "strings")
+
+summary(df)
+```
+
+Another issue that people come across is closing the document to continue working on the assignment later.
+
+
+```{r, eval = FALSE}
+# If you want to include a code chunk that is not run you can do so with eval = FALSE
+
+print(b) # produces an error
+```
+
+# **[34 points]** An Example Assignment 
+****************************
+
+You are going to use the Gapminder data in 2007 to produce three sets of summary statistics and produce a figure.
+
+## **[16 points]** Load in ggplot2 and Gapminder
+**********************************************
+
+1. **[10 points]** load in `ggplot2` and **omit your code**.
+2. **[6 points]** load in gapminder as `gm`
+
+```{r preliminary, include = FALSE}
+library(ggplot2)
+
+gm = read.csv('C:/Users/johnj/Dropbox/Julian/Academia/UIUC/Semester 12 Spring 2023/ECON474sp23/Data/DwD1 gapminder.csv')
+```
+
+Done! but I am not going to show you!
+
+## **[points]** Produce three summary stastics
+*******************************************
+
+1. **[7 points]** produce a correlation matrix
+
+```{r cor mat}
+
+cor(gm[ , c("gdpPercap_2007", "lifeExp_2007", "pop_2007")])
+```
+
+2. **[$\pi$ points]** obtain the mean and standard deviation of the **America's** GDPc
+
+```{r m sd americas}
+americas = gm[gm$continent == 'Americas', ]
+m = mean(americas$gdpPercap_2007)
+sd = sd(americas$gdpPercap_2007)
+
+print(paste("America's Average GDPc in 2007:", round(m, 2),
+            "\nAmerica's SD GDPc in 2007:", round(sd, 2)))
+```
+
+3. **[-45 points]** print summary statistics of life expectancy for countries with GDPc less than $10,000.
+
+```{r sumstat}
+
+```
+
+## Plot replication
+****************************
+
+- **[5 points]** Replicate the final Gapminder plot from DwD1 section 2
+
+```{r replication}
+ggplot(gm, aes(x = log(gdpPercap_2007), y = lifeExp_2007,
+               color = continent, size = pop_2007)) +
+  geom_point(alpha = 0.5) +
+  scale_size_continuous(guide = 'none') +
+  theme_minimal() +
+  labs(x = 'log(GDP per Capita)', y = 'Life Expectancy', #######################
+       title = 'GDPc vs. Life Expectancy 2007',
+       color = 'Continent') +
+  theme(text = element_text(size = 20)) +
+  geom_text(aes(label = ifelse(pop_2007 >= quantile(pop_2007, 0.90),
+                               country, # TRUE
+                               '')),    # FALSE
+            size = 5, hjust = 0, vjust = 0, nudge_x = .1) +
+  xlim(NA, 11.7)
+```
+
+
+
+
+
+

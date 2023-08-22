@@ -1,0 +1,66 @@
+---
+title: "IV3 Local Average Treatment Effects"
+subtitle: "ECON 474 Econometrics of Policy Evaluation"
+output: 
+  html_document:
+    toc: yes
+    toc_float: true
+    number_sections: true
+    theme: cerulean
+    highlight: pygments
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# [Lab] Card (1993)
+********************************************************************************
+
+Today we have a short lab to practice using the `feols()` function and to think about the local part of local average treatment effects.
+We will be using data from Card (1993) "Using Geographic Variation in College Proximity to Estimate the Return to Schooling" and doing what the title implies.
+Specifically, we will be instrumenting the endogenous "years of schooling" variable with an indicator variable for an accredited four-year university.
+
+
+## Setup
+**********************************************************************
+
+1. Load in the packages: `tidyverse` and `fixest`
+2. Load in the data `card.csv`
+3. Print the head of the data
+
+
+```{r loading}
+
+```
+
+## Replication 
+**********************************************************************
+
+Produce an `etable()` of the biased OLS regression, the reduced form, the first stage, and the structural model using heteroskedastic robust standard errors and the controls listed below.
+
+Variables:
+
+- y: log wage (`lwage`)
+- d: years of schooling (`educ`)
+- z: college-in-the-county (`nearc`)
+- x: a quadratic in years of experience (`exper`), an indicator for being black (`black`), an indicator for living in the south (`south`), and an indicator for living in an MSA (`smsa`)
+
+Within your `etable()`
+
+- display the number of observations, the $R^2$ and the F-statistic
+- label your regressions appropriately using `header`
+- `order` the variables to have the `Intercept`, years of schooling, and college-in-the-county come first in that order.
+
+```{r etable}
+
+```
+
+
+Education is endogenous because of omitted variable bias (i.e. ability). 
+We would expect the OLS estimate to be biased larger than the "true" estimate.
+Does the 2SLS least squares return this result (*hint: it doesn't*)?
+If not, what could be an economic (not statistical) explanation to the results?
+
+--your answer here--

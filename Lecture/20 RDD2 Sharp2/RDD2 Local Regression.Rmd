@@ -1,0 +1,247 @@
+---
+title: "RDD2 Sharp - Local Regression"
+subtitle: "ECON 474 Econometrics of Policy Evaluation"
+output: 
+  html_document:
+    toc: yes
+    toc_float: true
+    number_sections: true
+    theme: cerulean
+    highlight: pygments
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+[Reimers (2019) Copyright and Generic Entry in Book Publishing](https://www.aeaweb.org/articles?id=10.1257/mic.20170100) estimates the regression:
+
+$$y_j = \delta 1\{IP =1\} + k(year_j) + X_j \beta + \epsilon_j$$
+
+where $j$ is the specific book title (e.g. Gone with the Wind).
+
+The mapping of the variables in the regression to the data are:
+
+- $y_j$
+    - `ntitle` - number of in-print editions per title
+    - `ntitleformat` - number of in-print editions per title for each format (e.g. hardcover, paperback, e-book)
+- $1\{IP =1\}$ - `post1923` (publication year $\geq$ 1923)
+- $k(year_j)$ - a third degree polynomial of `year`
+- $X_j$
+    - `plr` - British Public Library Demand (checkouts)
+    - `prize_author` - Author is a Pulitzer Prize winner
+    - `canon_title` - Book listed in Harold  Bloom's Western Canon: The Books and School of the Ages
+    - `canon_author` - Author listed in Harold  Bloom's Western Canon: The Books and School of the Ages
+
+Additionally, there is a variable `format` that lists the formats in which the book is published.
+
+# Preliminary Setup
+********************************************************************************
+
+To get us going, let's 
+
+1. load in the packages
+    - `tidyverse`
+    - `fixest`
+    - `haven`
+2. the data
+3. and print the head of the data
+
+and the 
+
+```{r prelim}
+library(tidyverse)
+library(fixest)
+library(haven)
+
+df = read_dta("C:/Users/johnj/Dropbox/Julian/Academia/UIUC/Semester 12 Spring 2023/ECON474sp23/Data/RDD2 amazon_data.dta")
+
+head(df)
+
+```
+
+There are a few things to notice:
+
+1. The number of editions per title variable (`ntitle`) is duplicated for the three formats
+    - We will need to adjust subset regressions when using this outcome
+2. The running variable `year` is already centered at zero for us
+
+
+# Identification Checks
+********************************************************************************
+
+Firstly, the paper neither provides a running variable density figure (which is justified by the treatment mechanism) nor covariate balance estimate. 
+We are going to rectify that!
+
+So!
+
+Local regression is a non-parametric technique, which means it is only useful for prediction. 
+In other words, it doesn't provide explicit coefficients for parameters: the things we need for causal inference. 
+Therefore, it is largely only used in RDD figures.
+
+Fortunately, the *lo*cal regr*ess*ion function `loess()` is the default option in `geom_smooth()` from `ggplot2`.
+Let's take a look the respective help pages.
+
+```{r help!, eval = FALSE}
+?geom_smooth
+?loess
+```
+
+Note that the `...` argument will pass on arguments to `loess()` such as `span` or `degree`.
+
+
+## Running Variable Density
+********************************************************************************
+
+The reason why we estimate a running variable density figure is to ensure that people are not manipulating their running value to take advantage of the threshold value to enter treatment.
+What the means in this application is that authors ready to publish their book in 1922 did not delay publishing their books until 1923 to take advantage of the 1998 Copyright Term Extension Act (75 years later).
+
+
+```{r density}
+df_plot_density = df %>%
+  filter(format == "Hardcover") %>%
+  group_by(year, post1923) %>%
+  summarise(n_books = n(),
+            .groups = "drop")
+
+ggplot(df_plot_density, aes(x = year, y = n_books, group = post1923)) +
+  geom_point() +
+  geom_smooth()
+```
+
+Well that's not great.
+It looks like there is a book that was published in 1924 but has been assigned to the wrong group!
+Let's figure out what book that is and fix the data set.
+
+**Note: because we are adjusting the data set, we will get a different result than that of the paper. Without the adjustment, we get the same exact regression estimates as the paper.**
+
+
+```{r ruh roh}
+df %>%
+  filter(post1923 == 0 & year >= 0)
+
+df = df %>%
+  mutate(post1923 = ifelse(title == "THE CALL OF THE CANYON",
+                           1,
+                           post1923))
+```
+
+
+```{r density round 2}
+
+df_plot_density2 = df %>%
+  filter(format == "Hardcover") %>%
+  group_by(year, post1923) %>%
+  summarise(n_books = n(),
+            .groups = "drop")
+
+ggplot(df_plot_density2, aes(x = year, y = n_books, group = post1923)) +
+  geom_point() +
+  geom_smooth() +
+  geom_smooth(method = "lm",
+              formula = y ~ poly(x, 2),
+              color = "red")
+```
+
+It happens to be the case that the running variable doesn't pass the density check, but there is literally no way authors ready to publish books around the year 1922 are delaying publishing their books to take advantage of an act that will be passed 75 years later.
+
+Once again, we have an example of how causal inference requires a compelling story.
+
+## Covariate Balance
+********************************************************************************
+
+To perform the covariate balance check, we are going to follow the specification from the main results in table 2:
+
+- only contain data within 8 years of the threshold (-8 to 7)
+- a third order polynomial of year
+- on the subset `format == "Hardcover"`
+- with standard errors clustered at the year-level
+
+To help ourselves out, we are going to create a data frame that only contains the subset that is 8 years around the threshold.
+
+```{r df rdd}
+df_rdd = df %>%
+  filter(year >= -8 & year <= 7)
+
+feols(c(plr, prize_author, canon_title, canon_author) ~ post1923 + poly(year, 3),
+      data = df_rdd,
+      cluster = ~ year,
+      subset = ~ format == "Hardcover") %>%
+  etable(se.below = TRUE,
+         keep = "post1923")
+```
+
+These results tell us that the books that are protected by the copyright act are
+
+1. less likely to have Politzer Prize Authors
+2. less likely to be listed in Harold Bloom’s Western Canon: The Books and School of the Ages
+3. less likely to have authors listed in Harold Bloom’s Western Canon: The Books and School of the Ages
+
+To say these results in human words, books that are **not protected** by the copyright act are more famous.
+This could explain why there are more editions of the books.
+In other words, the sharp RDD identification assumption of no confounders is violated.
+
+
+# First Stage
+********************************************************************************
+
+The first stage is satisfied by definition; publishing in 1923 or later means the book is protected by the copyright act.
+
+# [LAB] Results
+********************************************************************************
+
+## Figure 1
+********************************************************************************
+
+Following the example of the running variable density figure, produce an RDD figure
+
+- with `ggplot()` 
+- on the mean `ntitle` as the outcome variable (*hint: create `df_plot_fig1`)
+- with the `loess()` argument `span` set to 90% of the observations via `geom_smooth()`
+- for funsies, add a vertical line with `geom_vline()` with an `xintercept` of zero and a `"dashed"` `linetype`.
+
+```{r fig1}
+df_plot_fig1 = df %>%
+  group_by(year, post1923) %>%
+  summarise(avg_ntitle = mean(ntitle))
+
+ggplot(df_plot_fig1, aes(x = year, y = avg_ntitle, group = post1923)) +
+  geom_point() +
+  geom_smooth()  +
+  geom_vline(xintercept = 0, linetype = "dashed")
+```
+
+
+## Main Results: Table 2
+********************************************************************************
+
+Replicate table 2 in an `etable()` using `df_rdd`
+
+- All regressions have controls `plr`, `prize_author`, `canon_title`, `canon_author`, and third-degree polynomial of `year` with standard errors clustered by `year`
+- the first regression has an outcome of `ntitle` on the subset with `format` of `"Hardcover"`
+- the remaining three regressions use the outcome of `ntitleformat` on the `format` subsets of `"Hardcover"`, `"Paperback"`, and `"E-book"`
+
+
+```{r tab2}
+fit_tab2_1 = feols(ntitle ~ post1923 + plr + prize_author + canon_title + canon_author + poly(year, 3),
+      data = df_rdd,
+      cluster = ~ year,
+      subset = ~ format == "Hardcover")
+
+subsets = c("Hardcover", "Paperback", "E-book")
+fit_tab2_2_4 = list()
+for(s in 1:length(subsets)){
+  fit_tab2_2_4[[s]] = feols(ntitleformat ~ post1923 + plr + prize_author + canon_title + canon_author + poly(year, 3),
+      data = df_rdd,
+      cluster = "year",
+      subset = df_rdd$format == subsets[s])
+}
+
+etable(fit_tab2_1, fit_tab2_2_4[[1]], fit_tab2_2_4[[2]], fit_tab2_2_4[[3]], 
+       se.below = TRUE,
+       fitstat = ~ n + ar2,
+       headers = c("All", "Harcover", "Paper", "E-book"))
+```
+
+

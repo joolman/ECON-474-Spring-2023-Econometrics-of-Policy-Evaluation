@@ -1,0 +1,116 @@
+---
+title: "DiD1 2x2 Difference-in-Differences"
+subtitle: "ECON 474 Econometrics of Policy Evaluation"
+output: 
+  html_document:
+    toc: yes
+    toc_float: true
+    number_sections: true
+    theme: cerulean
+    highlight: pygments
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+Here we are demonstrating the $2 \times 2$ difference-in-differences.
+What makes it $2 \times 2$ is that we will be running a regression using a variable for the two groups (treatment and control) and a variable for the two time periods (pre-treatment and post-treatment).
+
+To begin, load in our two favorite packages `tidyverse` and `fixest` along with the data.
+The data are tiny, so we can also print it.
+
+
+```{r loading}
+library(tidyverse)
+library(fixest)
+
+banks = read_csv("C:/Users/johnj/Dropbox/Julian/Academia/UIUC/Semester 12 Spring 2023/ECON474sp23/Data/DiD1 Mississippi experiment.csv")
+banks
+```
+
+Here we can see that we have data over 6 years.
+The variables `6th district` and `8th district` are the number of banks operating in each Federal Reserve district.
+Recall that district 6 is the Atlanta district (treated) and that distrcit 8 is the St. Louis district (control).
+
+# Parallel Trends
+********************************************************************************
+
+Parallel trends means that whatever happens to the control group after treatment is exactly what would have happened to the treatment group if they were not treated.
+We can hard code this into the data for demonstration purposes of what we require.
+
+To be clear, this **does not provide evidence** that the parallel trends assumption is satisfied.
+It is only showing what is required for the assumption to be satisfied.
+
+
+```{r parllel trends df}
+df_plot = banks %>%
+  mutate(diff_d8_d6 = `8th district`[year == 1930] - `6th district`[year == 1930],
+         counterfactual = if_else(year >= 1930,
+                                  `8th district` - diff_d8_d6, 
+                                  `6th district`)) %>%
+  select(-diff_d8_d6) %>% 
+  pivot_longer(cols = c(`6th district`, `8th district`, counterfactual),
+               names_to = 'district',
+               values_to = 'n_banks') 
+```
+
+Now, let's plot this to see what we the unobservable counterfactual should look like.
+
+```{r parllel trends plot}
+ggplot(df_plot, aes(x = year, y = n_banks, color = district, linetype = district)) +
+  geom_line() +
+  scale_linetype_manual(values = c(rep("solid", 2), "dashed")) +
+  labs(x = "Year", y = "Number of banks in business")
+```
+
+
+# 2x2 Difference-in-Differences
+********************************************************************************
+
+To run our first diff-in-diff, we need to take the `df_plot` and remove the made-up counterfactual outcome.
+When creating a new object, we will also create the two variables that we need to run the regression: `treat` and `post`, which are self-explanatory.
+
+
+```{r df reg}
+df_reg = df_plot %>%
+  filter(district != "counterfactual") %>%
+  mutate(treat = (district == '6th district')*1,
+         post = (year > 1930)*1)
+df_reg
+```
+
+Time to run the 2x2 regression!
+But first, since we have multiple pre-treatment observations and multiple post-treatment observations for each unit, we need to include fixed effects.
+However, I want to show you how to run a standard diff-in-diff, so we will estimate one regression without fixed effects and another with.
+Take a look at which coefficients are reported for the second regression.
+Is this a problem?
+
+
+```{r 2x2}
+fit1 = feols(n_banks ~ treat*post, data = df_reg)
+fit2 = feols(n_banks ~ treat*post | district, data = df_reg)
+
+etable(fit1, fit2,
+       se.below = TRUE)
+```
+
+
+To conclude, I want to show you visually what these regressions are actually estimating.
+The short answer is averages.
+Try to think about how the plotted averages map into the potential outcomes framework.
+
+```{r 2x2 plot}
+ggplot(df_reg, aes(x = year, y = n_banks, color = district)) +
+  geom_line() +
+  labs(x = "Year", y = "Number of banks in business") +
+  geom_smooth(method = "lm",
+              formula = y ~ I(x > 1930),
+              se = FALSE,
+              linetype = 'dashed')
+
+```
+
+
+

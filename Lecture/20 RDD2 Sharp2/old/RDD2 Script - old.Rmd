@@ -1,0 +1,408 @@
+---
+title: "17 RDD Sharp"
+subtitle: "ECON 474 Econometrics of Policy Evaluation"
+output: 
+  html_document:
+    toc: yes
+    toc_float: true
+    number_sections: true
+    theme: cerulean
+    highlight: pygments
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Preliminary Setup
+********************************************************************************
+
+We are going to replicate most of Lindo et al. (2012) to demonstrate how to implement RDD.
+Big picture, we are going to: replicate the causal identification checks by creating a density plot of the running varaible $X$ and check for covariate balance; estimate the first stage; and then estimate a few LATEs.
+The code itself should start to feel somewhat familiar. For example, we are going to 
+
+1. load in the packages:
+    - `haven`
+    - `tidyverse`
+    - `fixest`
+    - `cowplot`
+2. load in the data
+3. create a variable to help us out down the line
+
+
+```{r packages and data}
+library(haven)
+library(tidyverse)
+library(fixest)
+library(cowplot)
+
+df = read_dta('C:/Users/JJPWade/Dropbox/Julian/Academia/UIUC/Semester 12 Spring 2023/ECON474sp23/Data/RDD2 Lindo et al 2010.dta')
+
+df = df %>%
+  mutate(D = (dist_from_cut < 0)*1) 
+```
+
+As we progress in this replication, we are going to take advantage of being able to copy and paste our code after utilizing the find and replace feature in `R`.
+This will drastically save us time when writing our code.
+There are also a few things we will do along the way to help us out down the line, such as creating the `D` variable above.
+
+
+
+
+# Identification Checks
+********************************************************************************
+
+We are firstly going to check for bunching in the running variable by producing a binned scatter plot and by running a regression.
+We pass if there is no detectable effect on the discontinuity.
+Next, we are going to check for other endogenous confounders occurring at the cutoff value by checking for covariate balance.
+Again, we are hoping for being unable to rule out zero coefficients. 
+
+
+## Running Variable Density
+**********************************************************************
+
+It could be possible that Freshman know that academic probation threshold and are trying to manipulate their GPA (the running variable $X$) by retaking exams or asking for extra credit.
+This would violate the continuity assumption.
+To check for this, we will plot the distribution of the running variable against being put on academic probation using a binned scatter plot.
+
+We need to fit a line to both sides of the threshold, so we are going to estimate two regressions with `lm()`, then obtain the predicted values, and put them into a `data.frame()` for plotting in `ggplot2`.
+To predict values of a fitted `lm()` object, you to input a data frame with a column of values of `x` with a name that exactly matches the original data.
+
+Because real-life data can be non-linear, we will take advantage of the `poly()` function in our regressions.
+It is important to note that as the polynomial becomes more flexible (higher order polynmial), it can be suceptible to over-fitting. 
+A good rule of thumb is to use either a polynomial of degree 2 or 1.
+We will demonstrate over-fitting below.
+
+
+
+```{r density}
+df$dist_from_cut %>% summary
+
+df %>%
+  mutate(dist_from_cut_bin = cut(dist_from_cut,
+                                 breaks = seq(min(dist_from_cut), max(dist_from_cut), by = 0.1),
+                                 right = FALSE,
+                                 include.lowest = TRUE)) %>%
+  pull(dist_from_cut_bin) %>% head
+
+df_plot = df %>%
+  # filter(dist_from_cut < -0.05 | dist_from_cut > 0.05) %>%
+  mutate(dist_from_cut_bin = round(dist_from_cut, 1)) %>%
+  group_by(dist_from_cut_bin, D) %>%
+  summarise(freq = n(),
+            .groups = 'drop') %>%
+  filter(dist_from_cut_bin >= -1.2 & dist_from_cut_bin <= 1.2)
+
+ggplot(df_plot, aes(x = dist_from_cut_bin, y = freq, group = D)) +
+  geom_point(shape = 1, size = 3) +
+  stat_smooth(method = "lm",
+              formula = y ~ poly(x, 1),
+              level = 0.95)
+
+ggplot(df_plot, aes(x = dist_from_cut_bin, y = freq, group = D)) +
+  geom_point(shape = 1, size = 3) +
+  stat_smooth(method = "loess",
+              span = 0.6,
+              level = 0.95)
+```
+
+The last step is to verify that we do not have a statistically significant coefficient for the cutoff value.
+
+
+```{r density reg}
+feols(freq ~ poly(dist_from_cut_bin, 2)*D, data = df_plot)
+```
+
+
+## Table 2: Covariate Balance
+**********************************************************************
+
+We are going to follow the authors exactly on how they specify their regressions in their code.
+They are defining their covariates in an alternative way that provides a different intercept and a different slope for the treated and untreated individuals.
+Instead of using an interaction between $D_i$ and the running variable $X_i$ (GPA), they define two variables where one is value of GPA for those above the cutoff or zero otherwise and another that is the opposite.
+Note that in this case we have a rare case of $D_i = 1$ when $X_i \leq c_0$.
+
+- `gpalscutoff`: $D_i$ GPA is **less than** cutoff
+- `gpaXgpalscutoff`: the value of GPA for those less than the cutoff and zero otherwise
+- `gpaXgpagrcutoff`: the value of GPA for those greater than the cutoff and zero otherwise
+
+Don't forget that we need to adjust our standard errors because GPA takes on a small amount of discrete values (0.00 - 4.00 = 501 possible values).
+The authors also trim the data to only be considering the observations close to the cutoff value to minimize the effect of tail observations influencing the LATE.
+
+Now, check out this sweet way to specify multiple outcomes.
+
+```{r x bal}
+subset_reg = df$dist_from_cut >= -0.6 & df$dist_from_cut <= 0.6
+
+fit_tab2 = feols(c(hsgrade_pct, totcredits_year1, male, age_at_entry, bpl_north_america,
+                   english, loc_campus1, loc_campus2) ~ 
+                   gpalscutoff + gpaXgpalscutoff + gpaXgpagrcutoff, 
+                 data = df, cluster = 'clustervar',
+                 subset = subset_reg) 
+```
+
+
+Let's put these results into a table and spend a few moments making it pretty, since we are going to be copy and pasting it multiple times.
+
+
+```{r x bal tab}
+tab_dict = c(gpalscutoff = "First year GPA < cutoff",
+             "(Intercept)" = "Constant (control mean)")
+
+etable(fit_tab2,
+       se.below = TRUE,
+       dict = tab_dict,
+       drop = c('gpaXgpalscutoff', 'gpaXgpagrcutoff'),
+       order = "First year GPA < cutoff",
+       fitstat = c('n', 'r2'))
+```
+
+
+# First Stage
+********************************************************************************
+
+Much like instrumental variables, regression discontinuity designs also have a first stage.
+Here the first stage is whether being below the cutoff value predicts being treated (being put on academic probation).
+
+
+## Figure 2
+**********************************************************************
+
+Let's take advantage of the code we have written above to produce the binned scatter plot for the first stage.
+
+
+```{r fig2}
+df_plot = df %>%
+  filter(dist_from_cut < -0.05 | dist_from_cut > 0.05) %>%
+  mutate(dist_from_cut_bin = round(dist_from_cut, 1)) %>%
+  group_by(dist_from_cut_bin, D) %>%
+  summarise(probation_year1 = mean(probation_year1),
+            .groups = 'drop') %>%
+  filter(dist_from_cut_bin >= -1.2 & dist_from_cut_bin <= 1.2)
+
+degree_n = 2
+
+fit_left = lm(probation_year1 ~ poly(dist_from_cut_bin, degree_n), data = df_plot, subset = df_plot$D == 1)
+x_left = seq(-1.3, 0, length = 100)
+df_left = data.frame(dist_from_cut_bin = x_left)
+df_left$probation_year1_hat = predict(fit_left, df_left)
+
+
+fit_right = lm(probation_year1 ~ poly(dist_from_cut_bin, degree_n), data = df_plot, subset = df_plot$D == 0)
+x_right = x_left*-1
+df_right = data.frame(dist_from_cut_bin = x_left*-1)
+df_right$probation_year1_hat = predict(fit_right, df_right)
+
+
+ggplot(df_plot, aes(x = dist_from_cut_bin, y = probation_year1)) +
+  geom_point(shape = 1, size = 3) +
+  geom_line(data = df_left, aes(x = dist_from_cut_bin, y = probation_year1_hat)) +
+  geom_line(data = df_right, aes(x = dist_from_cut_bin, y = probation_year1_hat))
+```
+
+
+That is pretty compelling to me!
+
+## Table 3: First Stage Heterogeneity
+**********************************************************************
+
+In the spirit of compliance, the authors next explore if any of their three categories of students are more or less likely to put on academic probation given that they are below the GPA cutoff.
+The three categories are:
+
+1. Being in the upper half or lower half of high school grades prior to entering college
+2. Being male or female
+3. Being a native or nonnative English speaker 
+
+Here we have another instance of defining a few things to help us later on.
+We will define 
+
+- an object that contains the subset of individuals of interest
+- an object that contains the names of each subset
+
+```{r tab3a}
+subsets = 
+  list(TRUE,
+       df$lowHS == 1,
+       df$highHS == 1,
+       df$male == 1,
+       df$female == 1,
+       df$english == 1,
+       df$noenglish == 1)
+
+columns = c('All', 'HS grades < med', 'HS grades > med', 'Male', 'Female', 'Native English', 'Nonnative English')
+
+fit_tab3a = list()
+for(s in 1:length(subsets)){
+  fit_tab3a[[s]] = feols(probation_year1 ~ gpalscutoff + gpaXgpalscutoff + gpaXgpagrcutoff, data = df, cluster = 'clustervar', subset = subsets[[s]] & subset_reg)
+}
+
+etable(fit_tab3a[[1]], fit_tab3a[[2]], fit_tab3a[[3]], fit_tab3a[[4]], fit_tab3a[[5]], fit_tab3a[[6]], fit_tab3a[[7]],
+       se.below = TRUE,
+       dict = tab_dict,
+       drop = c('gpaXgpalscutoff', 'gpaXgpagrcutoff'),
+       order = "First year GPA < cutoff",
+       fitstat = c('n', 'r2'),
+       headers = columns)
+
+```
+
+
+
+
+# Immediate Response: Should I Stay or Should I Go?
+********************************************************************************
+
+
+Putting students on academic probation provides a signal to students that they are academically under-performing.
+This can either discourage students and cause them to leave college or could motivate them to try harder next semester.
+As it turns out, the different categories of students defined respond differently to being put on probation.
+
+Here we are going to produce RDD plots for each subset of student on their immediate decision on whether to leave college.
+
+
+```{r fig3}
+fig3 = list()
+
+for(s in 1:length(subsets)){
+  df_plot = df %>%
+    filter(dist_from_cut < -0.05 | dist_from_cut > 0.05
+           & subsets[[s]]) %>% ##############################################
+    mutate(dist_from_cut_bin = round(dist_from_cut, 1)) %>%
+    group_by(dist_from_cut_bin, D) %>%
+    summarise(left_school = mean(left_school),
+              .groups = 'drop') %>%
+    filter(dist_from_cut_bin >= -1.2 & dist_from_cut_bin <= 1.2)
+  
+  fit_left = lm(left_school ~ poly(dist_from_cut_bin, degree_n), data = df_plot, subset = df_plot$D == 1)
+  x_left = seq(-1.3, 0, length = 100)
+  df_left = data.frame(dist_from_cut_bin = x_left)
+  df_left$left_school_hat = predict(fit_left, df_left)
+  
+  
+  fit_right = lm(left_school ~ poly(dist_from_cut_bin, degree_n), data = df_plot, subset = df_plot$D == 0)
+  x_right = x_left*-1
+  df_right = data.frame(dist_from_cut_bin = x_left*-1)
+  df_right$left_school_hat = predict(fit_right, df_right)
+  
+  
+  fig3[[s]] = ggplot(df_plot, aes(x = dist_from_cut_bin, y = left_school)) +
+    geom_point(shape = 1, size = 3) +
+    geom_line(data = df_left, aes(x = dist_from_cut_bin, y = left_school_hat)) +
+    geom_line(data = df_right, aes(x = dist_from_cut_bin, y = left_school_hat)) +
+    labs(title = columns[s])
+}
+
+plot_grid(fig3[[2]], fig3[[3]], fig3[[4]], fig3[[5]], fig3[[6]], fig3[[7]], 
+          ncol = 2)
+
+```
+
+
+
+## Table 4: Decisions to Leave
+**********************************************************************
+
+For the purposes of determining statistical significance, we will also estimate multiple regressions on different subsets of the data.
+It is worth examining which sub-groups are affected and which are not.
+
+```{r tab4}
+
+fit_tab4 = list()
+for(s in 1:length(subsets)){
+  fit_tab4[[s]] = feols(left_school ~ gpalscutoff + gpaXgpalscutoff + gpaXgpagrcutoff, data = df, cluster = 'clustervar', subset = subsets[[s]] & subset_reg)
+}
+
+etable(fit_tab4[[1]], fit_tab4[[2]], fit_tab4[[3]], fit_tab4[[4]], fit_tab4[[5]], fit_tab4[[6]], fit_tab4[[7]],
+       se.below = TRUE,
+       dict = tab_dict,
+       drop = c('gpaXgpalscutoff', 'gpaXgpagrcutoff'),
+       order = "First year GPA < cutoff",
+       fitstat = c('n', 'r2'),
+       headers = columns)
+```
+
+
+
+
+# Stayers and Subsequent GPA Performance
+********************************************************************************
+
+It is time to estimate the other side of the coin: those who became motivated to do better after being put on academic probation.
+
+**Cautiont**: it is important to remember that we can only see how students performed in their subsequent semester if they did not dropout. 
+The LATEs that we will be estimating below are therefore conditional on (the sub-population that) did not leave college!
+
+## Figure 4: GPA in Next Enrolled Term
+**********************************************************************
+
+Interestingly, those that stayed all had positive effects that are more or less equivalent.
+We will tone things down a notch and only produce an RDD plot for the effect on everyone.
+
+
+```{r fig4}
+df_plot = df %>%
+  filter(dist_from_cut < -0.05 | dist_from_cut > 0.05) %>%
+  mutate(dist_from_cut_bin = round(dist_from_cut, 1)) %>%
+  group_by(dist_from_cut_bin, D) %>%
+  summarise(nextGPA = mean(nextGPA, na.rm = TRUE),
+            .groups = 'drop') %>%
+  filter(dist_from_cut_bin >= -1.2 & dist_from_cut_bin <= 1.2)
+
+fit_left = lm(nextGPA ~ poly(dist_from_cut_bin, degree_n), data = df_plot, subset = df_plot$D == 1)
+x_left = seq(-1.3, 0, length = 100)
+df_left = data.frame(dist_from_cut_bin = x_left)
+df_left$nextGPA_hat = predict(fit_left, df_left)
+
+
+fit_right = lm(nextGPA ~ poly(dist_from_cut_bin, degree_n), data = df_plot, subset = df_plot$D == 0)
+x_right = x_left*-1
+df_right = data.frame(dist_from_cut_bin = x_left*-1)
+df_right$nextGPA_hat = predict(fit_right, df_right)
+
+
+ggplot(df_plot, aes(x = dist_from_cut_bin, y = nextGPA)) +
+  geom_point(shape = 1, size = 3) +
+  geom_line(data = df_left, aes(x = dist_from_cut_bin, y = nextGPA_hat)) +
+  geom_line(data = df_right, aes(x = dist_from_cut_bin, y = nextGPA_hat))
+```
+
+
+
+
+## Table 5: Subsequent GPA
+**********************************************************************
+
+We will finally estimate the LATEs on subsequent GPA for each of these sub populations.
+
+
+```{r tab5a}
+
+fit_tab5a = list()
+for(s in 1:length(subsets)){
+  fit_tab5a[[s]] = feols(nextGPA ~ gpalscutoff + gpaXgpalscutoff + gpaXgpagrcutoff, data = df, cluster = 'clustervar', subset = subsets[[s]] & subset_reg)
+}
+
+etable(fit_tab5a[[1]], fit_tab5a[[2]], fit_tab5a[[3]], fit_tab5a[[4]], fit_tab5a[[5]], fit_tab5a[[6]], fit_tab5a[[7]],
+       se.below = TRUE,
+       dict = tab_dict,
+       drop = c('gpaXgpalscutoff', 'gpaXgpagrcutoff'),
+       order = "First year GPA < cutoff",
+       fitstat = c('n', 'r2'),
+       headers = columns)
+```
+
+
+
+# Conclusion
+********************************************************************************
+
+While we have leveled up our coding to the next level, we are actually just applying functions that we have been using all along. 
+We have also shown the parallels of RDD to IV.
+The cutoff decision (having a GPA below a threshold) can be thought of the instrument that is inducing variation in our treatment variable (being put on probation) that determines some outcome variable (leaving school and subsequent semester GPA).
+Both techniques estimate a LATE, but RDD requires significantly fewer assumptions for causal identification. 
+RDD can also be so cleanly put into a figure and RDD resolves selection bias in a more transparent way.
+The trade-off is that you need a specific setting where there are these exogenous cutoff values.
+Altogether, RDD is phenomenal technique to add to your tool kit.
+
+

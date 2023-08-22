@@ -1,0 +1,212 @@
+---
+title: "FP - RDD: Reimers (2019) [100 Points]"
+subtitle: "ECON 474 Econometrics of Policy Evaluation"
+author: "FirstName LastName"
+output: 
+  html_document:
+    toc: yes
+    toc_float: true
+    number_sections: true
+    theme: cerulean
+    highlight: pygments
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+<style>
+  div.blue {background-color: #cee4f2 !important;
+            border-radius: 5px;
+            padding: 20px;}
+</style>
+
+
+# **[30 Points]** Research Design
+********************************************************************************
+
+This section is centered around understanding the research design for this paper.
+
+## **[10 Points]** Research Question
+************************************************************
+
+What is the research question of this paper?
+
+*Hint: economists are notorious for not explicitly stating their research question in their papers.*
+
+**Your answer:**
+
+<div class = "blue">
+
+How does intellectual property affect the use of creative work?
+
+</div>
+
+
+## **[20 Points]** Empirical Design
+************************************************************
+
+1. What is the casual technique of this paper, and why is it chosen?
+
+**Your answer:**
+
+<div class = "blue">
+
+RDD because of arbitrary policy date threshold.
+
+</div>
+
+2. Name one possible threat to identification.
+
+**Your answer:**
+
+<div class = "blue">
+
+There could be historical confounders around 1923 that affect publishing rates.
+But honestly, this paper has incredibly clean identification because the year 1923 was chosen in 1998.
+
+</div>
+
+# **[70 Points]** Replication
+********************************************************************************
+
+The paper estimates the regression:
+
+$$y_j = \delta 1\{IP =1\} + k(year_j) + X_j \beta + \epsilon_j$$
+
+where $j$ is the specific book title (e.g. Gone with the Wind).
+
+The mapping of the variables in the regression to the data are:
+
+- $y_j$
+    - `ntitle` - number of in-print editions per title
+    - `ntitleformat` - number of in-print editions per title for each format (e.g. hardcover, paperback, e-book)
+- $1\{IP =1\}$ - `post1923` (publication year $\geq$ 1923)
+- $k(year_j)$ - a third degree polynomial of `year`
+- $X_j$
+    - `plr` - British Public Library Demand (checkouts)
+    - `prize_author` - Author is a Pulitzer Prize winner
+    - `canon_title` - Book listed in Harold  Bloom's Western Canon: The Books and School of the Ages
+    - `canon_author` - Author listed in Harold  Bloom's Western Canon: The Books and School of the Ages
+
+Additionally, there is a variable `format` that lists the formats in which the book is published.
+
+
+**[5 Points]** Load in the data and any necessary packages:
+
+```{r loading please wait}
+library(haven)
+library(tidyverse)
+library(fixest)
+
+df = read_dta('C:/Users/johnj/Dropbox/Julian/Academia/UIUC/Semester 11 Fall 2022/ECON474/Final Project/Reimers 2019/amazon_data.dta')
+```
+
+*Note: if you are still confused what this paper is analyzing, go to Amazon and search for the Wealth of Nations. There are __many__ different versions of the same book. This is not the case for a book that has been published recently.*
+
+## **[30 Points]** Main Results: Table 2
+************************************************************
+
+The regressions in table 2 only consider `year`s that are $\geq$ -8 years before the cutoff and $\leq$ 7 years after the cutoff.
+All regressions cluster on the `year` of publication variable.
+The column specific details are:
+
+1. outcome `ntitle` on the additional subset of `"Hardcover"` `format`s
+2. outcome `ntitleformat` on the additional subset of `"Hardcover"` `format`s
+3. outcome `ntitleformat` on the additional subset of `"Paperback"` `format`s
+4. outcome `ntitleformat` on the additional subset of `"E-book"` `format`s
+
+Replicate table 2 in an `etable()`.
+Rename all variables appropriately (recall you cannot rename the cluster variable).
+Specify the `fitstat` argument appropriately.
+Use the `extralines` argument of the `etable()` to:
+
+1. Add any missing elements
+2. Add the effect size following the papers methodology
+    - *Hint: Obtain the* $delta$s *and then divide them by the __pre-cutoff__ averages of the outcome variables for the __subsample that matches the regressions__.*
+    
+*Note: the coefficients on the polynomial and the intercept will be different than the paper but the rest will be the same.*
+
+```{r tab2}
+fit_tab2_1 = feols(ntitle ~ post1923 + plr + prize_author + canon_title + canon_author + poly(year,3),
+      data = df, 
+      cluster = ~ year,
+      subset = ~ year >= -8 &
+        year <= 7 &
+        format == "Hardcover")
+
+deltas = coef(fit_tab2_1)[2]
+pre_y0 = df %>%
+  filter(year %in% -8:-1 & format == "Hardcover") %>%
+  pull(ntitle) %>%
+  mean
+
+fit_tab2_2_4 = list()
+formats = c('Hardcover', 'Paperback', 'E-book')
+for(i in 1:length(formats)){
+  f = formats[i]
+  fit_tab2_2_4[[i]] = feols(ntitleformat ~ post1923 + plr + prize_author + canon_title + canon_author + poly(year,3),
+                         data = df, 
+                         cluster = ~ year,
+                         subset = df$year %in% -8:7 & df$format == formats[i])
+  
+  pre_y0 = c(pre_y0, 
+             (df %>%
+                filter(year %in% -8:-1 & format == formats[i]) %>%
+                pull(ntitleformat) %>%
+                mean))
+  
+  deltas = c(deltas, 
+             coef(fit_tab2_2_4[[i]])[2])
+}
+
+effect_size = deltas/pre_y0
+
+
+etable(fit_tab2_1, fit_tab2_2_4,
+       order = "!Intercept",
+       fitstat = ~ n + ar2,
+       extralines = list("_^Effect Size" = effect_size))
+```
+
+
+
+## **[35 Points]** RDD Plot - Figure 1
+************************************************************
+
+
+Replicate Figure 1 with appropriately labelled axes and title, which uses a third-order polynomial on each side of the cutoff on the outcome `ntitle`. 
+Do not remove the standard error from the fitted line.
+
+*Hint: create another data frame that is aggregated at the annual level, and adjust the* `year` *variable.*
+
+*Note: the figure will not be identical but will be close to the one in the paper.*
+
+```{r RDD figure}
+df_plot = df %>%
+  group_by(year) %>%
+  summarise(ntitle = mean(ntitle),
+            year = unique(year + 1923)) %>%
+  mutate(group = year >= 1923)
+
+ggplot(df_plot, aes(x = year, y = ntitle, group = group)) +
+  geom_point() +
+  geom_smooth(method = 'lm',
+              formula = y ~ poly(x, 3)) +
+  geom_vline(xintercept = 1922.5, linetype = 'dashed') +
+  labs(x = "Year of original publication",
+       y = "Average in-print editions per title",
+       title = "Number of Current In-Print ISBNs by Year of Publication")
+
+```
+
+
+
+
+
+
+
+
+
+
+

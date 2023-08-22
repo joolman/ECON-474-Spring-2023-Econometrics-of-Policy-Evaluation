@@ -1,0 +1,225 @@
+---
+title: "RE1 Randomized Experiments"
+subtitle: "ECON 474 Econometrics of Policy Evaluation"
+output: 
+  html_document:
+    toc: yes
+    toc_float: true
+    number_sections: true
+    theme: cerulean
+    highlight: pygments
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Today we replicate a few results from the first half of the randomized experiment from Thornton (2008).
+We are also going to add a balance table between treatment and control groups to indicate which variables should be conditioned on.
+
+
+# Preliminaries 
+********************************************************************************
+
+To get started, we are going to load in the packages
+
+- `tidyverse`
+- `fixest`
+- `cowplot`
+
+The `cowplot` package is useful for plotting figures in grids. It might also be useful to load in the data too!
+
+
+```{r perlim}
+
+```
+
+
+
+# Balance Table
+********************************************************************************
+
+There first step in any treatment and control group comparison (whether a randomized experiment or otherwise) is to construct a balance table. 
+The balance table tells us if the control group is a good approximation for the treated counterfactual *__conditional on observable variables__*. 
+We cannot compare unobservable variables because they are not observed in the data set.
+
+Below is the list of **CONTROL** variables for us to compare:
+
+- `any` - treatment - any incentive
+- `tinc` - treatment dosage - random incentive amount
+- `distvct` - distance to VCT center
+- `simaverage` - Simulated average distance from VCT to Home
+- `tb` - Taken an HIV test before interview
+- `male` - Male
+- `age` - age
+- `rumphi` - Located in the Rumphi district
+- `balaka` - Located in the balaka district
+- `mar` - married
+- `educ2004` - pre-period level of education 
+- `land2004` - pre-period owned land
+- `hiv2004` - pre-period HIV status
+- `thinktreat` - Think treatment for HIV will be available in the next 5 years
+- `hadsex12` - had sex in the last year
+- `usecondom04` - used a condom in the last year
+
+We will start by creating an object `vrbls` that contains the variable names.
+
+```{r balance variables}
+
+```
+
+Something to point out is that there are missing observations within the variables of interest.
+
+**IMPORTANT**: when you are running your analysis, it is vital to compare the same observations across your different specifications. 
+If you don't maintain consistent observations, then it is impossible to know if your results are changing because of the specification or because the samples your a comparing are fundamentally different.
+
+```{r unbalanced data}
+
+```
+
+Now, for the balance table. We are going to have our rows as the variables in `vrbls` with separate columns for:
+  - treatment group averages
+  - control group averages
+  - differences in averages
+  - p-value for difference significance
+
+```{r avg by treatment}
+
+```
+
+We are going to manually add the p-values with `t.test()` by constructing a for loop.
+
+```{r baltabl pvalue}
+
+```
+
+Now it is time to see which variables are statistically different between the treatment group (`D_1`) and the control group (`D_0`).
+
+```{r bal_tab}
+
+```
+
+You should always include variables that are statistically distinguishable between treatment groups and control groups as control variables in your regressions.
+Note that this is not done in the paper.
+
+
+# Table 4: Incentive of Learning HIV Status Effects
+********************************************************************************
+```{r}
+
+```
+
+
+Now check this out. 
+Even though we have the correct number of observations, the coefficients do not precisely match the paper.
+
+
+```{r basic etable}
+
+```
+
+Anyway... Let's make our `etable()` a little prettier.
+I first like to construct a table dictionary object outside of the `etable()`, so I can add to it later on in the script in case I run additional specifications with different variables.
+It is okay to have variables in the dictionary object that are not in any of the regression put into the `etable()`.
+
+```{r etable dictionary}
+
+```
+
+
+
+```{r fancy etable}
+
+```
+
+Note that using `poly(distvct,2)` instead of `distvct + I(distvct^2)` 
+
+
+# Figure 3: Percantage Returning for HIV Results
+********************************************************************************
+
+
+Humans are visual creatures. 
+If you can show something in a figure, then you should do that. 
+Below we are not plotting the main results, but simple summary statistics.
+
+
+If you are going to plot your results, then you need to use the Frisch-Waugh-Lovell theorem to account for your control variables.
+
+
+## Figure 3 Panel A
+********************************************************************************
+
+Panel A of figure 3 compares the percentage of people learning their HIV status across the incentive group (treatment) and the no incentive group (control).
+It also contains 95% confidence intervals for the estimates.
+We can take advantage of a dummy variable regression to obtain these values.
+
+We are first going to create a variable that we will plot on the x-axis.
+`R` will alphabetize the label, so we need to order it as a `factor`.
+
+```{r incentive group}
+
+```
+
+Now for the regression.
+To get the average values for the two groups, we will use the function `coef()` on the regression object.
+The confidence intervals are obtained with the function `confint()`, where the default value is a 95% confidence interval.
+
+```{r fig 3a reg}
+
+```
+
+Now the goal is to put these numbers into a `ggplot()`, which requires a `data.frame` as an input.
+So, let's create a `data.frame` from the regression output.
+
+```{r df fig 3a}
+
+```
+Now, time for a pretty plot:
+
+```{r fig3a}
+
+```
+
+
+## Figure 3 Panel B
+********************************************************************************
+
+Panel B is effectively the same as panel A, which means that we can copy and paste our code from above.
+The only difference is that the groups are separated by incentive bins. 
+We will use the `R` function `cut()` to separate the groups.
+`cut()` separates the data into left open, right closed intervals, which means we cannot obtain the interval (0, 0] for the no incentive group.
+Since no one received a negative incentive (having to pay for their results), we can do a bit of magic with negative numbers and relabeling the factor levels.
+
+```{r incentive bins}
+
+```
+From here, on out, it is basically copying and pasting while remembering to rename objects.
+
+```{r reg 3b and df 3b}
+
+```
+And similarly:
+
+```{r fig 3b}
+
+```
+
+
+Now to put together figure 3! 
+For the sake of readability in an R Markdown, I am going to use the function `plot_grid()` from the `cowplot` package to put the figures on top of each other instead of side-by-side like the paper.
+
+```{r fig 3}
+
+```
+
+
+
+
+
+
+
+
+
+
+

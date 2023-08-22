@@ -1,0 +1,274 @@
+---
+title: "IV4 Treatment on the Treated"
+subtitle: "ECON 474 Econometrics of Policy Evaluation"
+output: 
+  html_document:
+    toc: yes
+    toc_float: true
+    number_sections: true
+    theme: cerulean
+    highlight: pygments
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+# The Oregon Heatlh Insurance Experiment
+********************************************************************************
+
+The Oregon health insurance experiment (HIE) provides an excellent demonstration of using instrumental variables in a randomized experiment when there is one-sided non-compliance. 
+We are going to replicate part of [Finkelstein et a. 2012](https://academic.oup.com/qje/article/127/3/1057/1923446) to demonstrate the relationship between intent-to-treat (ITT) and treatment-on-the-treated (TOT) with the three causal equations of instrumental variables.
+
+
+
+
+## Preliminaries
+**********************************************************************
+
+As always, we are going to begin with the standard loading in of a few packages and the data.
+Don't print the `head()` here because this data has a plethora (over 500) of variables.
+
+```{r loading}
+library(haven)
+library(tidyverse)
+library(fixest)
+
+hie = read_dta('C:/Users/JJPWade/Dropbox/Julian/Academia/UIUC/Semester 12 Spring 2023/ECON474sp23/Data/IV4 oregonhie_data_for_analysis.dta')
+
+```
+
+Finkelstein et al. 2012 use two sources of data: one that is from administrative government sources and another that is a survey that some of the individuals in the administrative data responded to.
+The authors have helped us identify which variables should be used as controls for data source.
+The administrative data controls begin with either a `lll` or an `nnn`.
+
+
+```{r admin controls}
+vrbls = names(hie)
+# vrbls[grepl('lll', vrbls)]
+# vrbls[grepl('nnn', vrbls)]
+vrbls[grepl('lll|nnn', vrbls)]
+```
+
+The `lll` prefixes indicate which lottery round are individuals obtained access to the Oregon state Medicaid.
+The `nnn` prefixes are indicators for number of people in household.
+
+The survey data controls begin with a `ddd`.
+
+```{r survey controls}
+vrbls[grepl('ddd', vrbls)]
+```
+
+There are three variables that have the `ddd` prefix:
+
+1. `draw_lot` - survey wave
+2. `num_hh` - number of people in household
+3. `raXnum` the interaction of `draw_lot` and `num_hh`
+
+
+### Levelling up our regression coding
+************************************************************
+
+Throughout this replication, we are going to be estimating many regressions that are identical but with *multiple outcomes*.
+Fortunately, `feols()` handles "multiple outcome" regression quite well by inputting the outcome variables without quotes into `c()`.
+
+
+## Table 3 - First Stage Estimates 
+**********************************************************************
+
+
+
+We are going to begin with the administrative data first.
+Recall that we are going to put all of the outcome variables into `c()` within the `feols()` `formula`.
+We could type out all of the control variables, or we could instead use our variable selection using `grepl()` from above inside of `paste()` to speed up by copying and pasting into the `formula`.
+
+Something that you should include in all of your regression tables is the average outcome value for the control group.
+The reason why this is important is so we can compare it with the regression coefficients to determine the effect size and economic significance.
+For example, if cancer rates go up by 100%, but only 1 out of 1,000,000,000 got cancer in the control group, then we know the effect size does not have economic significance.
+
+As we are going to run our first regression, something important to note that Medicaid is applied *not to individuals* but to *all individuals within a household*. 
+Because our data are on individuals, we need to cluster the data to the treatment level: households.
+
+
+```{r first stage admin}
+paste(vrbls[grepl('nnn|lll', vrbls)], collapse = ' + ')
+
+fs_fits_hdd = 
+  feols(c(ohp_all_ever_admin, ohp_std_ever_admin, ohp_all_mo_admin, ohp_all_end_admin) ~ treatment + llldraw_lot_2 + llldraw_lot_3 + llldraw_lot_4 + llldraw_lot_5 + llldraw_lot_6 + llldraw_lot_7 + llldraw_lot_8 + nnnnumhh_li_2 + nnnnumhh_li_3,
+      data = hie,
+        cluster = ~ household_id)
+
+fs_control_means_hdd = hie %>%
+  filter(treatment == 0) %>%
+  summarise_at(vars(ohp_all_ever_admin, ohp_std_ever_admin, ohp_all_mo_admin, ohp_all_end_admin), mean) %>%
+  unlist()
+```
+
+Now we are going to do the same thing, but for the survey data.
+Because not everyone in the experiment responded to the survey, the authors created survey weights to make those that did respond represent the experiment population.
+We need to adjust our `feols()` and control group mean calculations accordingly.
+
+```{r first stage survey}
+paste(vrbls[grepl('ddd', vrbls)], collapse = ' + ')
+
+fs_fits_12m =
+  feols(c(ohp_all_ever_survey, ohp_std_ever_survey, ohp_all_mo_survey, ohp_all_end_survey) ~ treatment + ddddraw_sur_2 + ddddraw_sur_3 + ddddraw_sur_4 + ddddraw_sur_5 + ddddraw_sur_6 + ddddraw_sur_7 + dddnumhh_li_2 + dddnumhh_li_3 + ddddraXnum_2_2 + ddddraXnum_2_3 + ddddraXnum_3_2 + ddddraXnum_3_3 + ddddraXnum_4_2 + ddddraXnum_5_2 + ddddraXnum_6_2 + ddddraXnum_7_2,
+        data = hie,
+        cluster = ~ household_id,
+        subset = ~ sample_12m_resp == 1,
+        weights = ~ weight_12m)
+  
+fs_control_means_12m =
+  hie %>%
+  filter(treatment == 0 & 
+           sample_12m_resp == 1) %>%
+  summarise_at(vars(ohp_all_ever_survey, ohp_std_ever_survey, ohp_all_mo_survey, ohp_all_end_survey),
+               weighted.mean,
+               w = hie$weight_12m[hie$treatment == 0 & 
+           hie$sample_12m_resp == 1]) %>%
+  unlist()
+  
+
+```
+
+Great! Now we can put our results into an `etable()` to present our results.
+We are going to omit the coefficients for the controls to be parsimonious.
+Remember to always describe which variables are in your regression whenever presenting your results, especially if you are choosing to not display them.
+
+```{r first stage 1st 4 rows}
+etable(fs_fits_hdd, fs_fits_12m,
+       se.below = TRUE,
+       keep = 'treatment',
+       fitstat = ~ n + r2 + f,
+       extralines = list('_^Control Mean Outcome' = c(fs_control_means_hdd, fs_control_means_12m)))
+
+```
+
+
+
+## Table 5 - Healthcare Utilization
+**********************************************************************
+
+Unfortunately for us (but fortunately for the respondents) the administrative is not publicly disclosed to maintain confidentiality.
+That means we can only analyze individuals who responded to the survey, but this is sufficient to demonstrate ITT and TOT.
+
+Table 5 shows both the ITT and LATE (TOT) for several healthcare utilization outcomes.
+We are only going to show a few of the outcomes reported to demonstrate the process.
+Nonetheless, because ITT is estimated from the reduced form and TOT is estimated from the structural equation, we need to run both of these regressions inside of our for loop.
+
+
+```{r tab5}
+# ITT - Reduced form
+fit5_itt = feols(c(rx_any_12m, rx_num_mod_12m, doc_any_12m, doc_num_mod_12m) ~ treatment + ddddraw_sur_2 + ddddraw_sur_3 + ddddraw_sur_4 + ddddraw_sur_5 + ddddraw_sur_6 + ddddraw_sur_7 + dddnumhh_li_2 + dddnumhh_li_3 + ddddraXnum_2_2 + ddddraXnum_2_3 + ddddraXnum_3_2 + ddddraXnum_3_3 + ddddraXnum_4_2 + ddddraXnum_5_2 + ddddraXnum_6_2 + ddddraXnum_7_2,
+        data = hie,
+        cluster = ~ household_id,
+        subset = ~ sample_12m_resp == 1,
+        weights = ~ weight_12m)
+
+# TOT - Structural equation
+fit5_tot = feols(c(rx_any_12m, rx_num_mod_12m, doc_any_12m, doc_num_mod_12m) ~  ddddraw_sur_2 + ddddraw_sur_3 + ddddraw_sur_4 + ddddraw_sur_5 + ddddraw_sur_6 + ddddraw_sur_7 + dddnumhh_li_2 + dddnumhh_li_3 + ddddraXnum_2_2 + ddddraXnum_2_3 + ddddraXnum_3_2 + ddddraXnum_3_3 + ddddraXnum_4_2 + ddddraXnum_5_2 + ddddraXnum_6_2 + ddddraXnum_7_2 | ohp_all_ever_survey ~ treatment,
+        data = hie,
+        cluster = ~ household_id,
+        subset = ~ sample_12m_resp == 1,
+        weights = ~ weight_12m)
+
+# control group average outcome
+fit5_control_means = 
+  hie %>%
+  filter(treatment == 0 & 
+           sample_12m_resp == 1) %>%
+  summarise_at(vars(rx_any_12m, rx_num_mod_12m, doc_any_12m, doc_num_mod_12m),
+               weighted.mean,
+               w = hie$weight_12m[hie$treatment == 0 & 
+           hie$sample_12m_resp == 1],
+           na.rm = TRUE) %>%
+  unlist()
+
+```
+
+We have ran two types of regressions, which means we need to report two variables: the instrument `treatment` and the endogenous variable `ohp_all_ever_survey`.
+
+
+```{r tab5 rep}
+etable(fit5_itt, fit5_tot,
+       se.below = TRUE,
+       keep = c('treatment', 'ohp_all_ever_survey'),
+       fitstat = ~ n + r2 + f,
+       extralines = list('_^Control Mean Outcome' = fit5_control_means))
+```
+
+
+
+## Table 9 - Health
+**********************************************************************
+
+There are three classes of outcomes Finkelstein et al. look at:
+
+1. utilization
+2. finances
+3. health
+
+My prior is that if people have access to health insurance then they will utilize healthcare more.
+Their results on utilization don't surprise me.
+While we are not replicate the finance results, they find that people with health insurance experience less medical related financial burdens. 
+Again, that is what I would expect.
+
+The interesting part of provided access to health insurance is does it improve health.
+I expect that going to the doctor when sick/injured would be helpful, but I also expect that simply having health insurance does not change our habits (eating/exercise/stress-management) that contribute to health. 
+Let's take a look at a few of the outcomes in table 9 to see if people truly did become healthier according to their self-reports.
+
+
+```{r tab9}
+fit9_itt = feols(c(health_genflip_bin_12m, notbaddays_phys_12m, notbaddays_ment_12m) ~ treatment + ddddraw_sur_2 + ddddraw_sur_3 + ddddraw_sur_4 + ddddraw_sur_5 + ddddraw_sur_6 + ddddraw_sur_7 + dddnumhh_li_2 + dddnumhh_li_3 + ddddraXnum_2_2 + ddddraXnum_2_3 + ddddraXnum_3_2 + ddddraXnum_3_3 + ddddraXnum_4_2 + ddddraXnum_5_2 + ddddraXnum_6_2 + ddddraXnum_7_2,
+                 data = hie,
+                 cluster = ~ household_id,
+                 subset = ~ sample_12m_resp == 1,
+                 weights = ~ weight_12m)
+
+# TOT - Structural equation
+fit9_tot = feols(c(health_genflip_bin_12m, notbaddays_phys_12m, notbaddays_ment_12m) ~  ddddraw_sur_2 + ddddraw_sur_3 + ddddraw_sur_4 + ddddraw_sur_5 + ddddraw_sur_6 + ddddraw_sur_7 + dddnumhh_li_2 + dddnumhh_li_3 + ddddraXnum_2_2 + ddddraXnum_2_3 + ddddraXnum_3_2 + ddddraXnum_3_3 + ddddraXnum_4_2 + ddddraXnum_5_2 + ddddraXnum_6_2 + ddddraXnum_7_2 | ohp_all_ever_survey ~ treatment,
+                 data = hie,
+                 cluster = ~ household_id,
+                 subset = ~ sample_12m_resp == 1,
+                 weights = ~ weight_12m)
+
+# control group average outcome
+fit9_control_means = 
+  hie %>%
+  filter(treatment == 0 & 
+           sample_12m_resp == 1) %>%
+  summarise_at(vars(health_genflip_bin_12m, notbaddays_phys_12m, notbaddays_ment_12m),
+               weighted.mean,
+               w = hie$weight_12m[hie$treatment == 0 & 
+                                    hie$sample_12m_resp == 1],
+               na.rm = TRUE) %>%
+  unlist()
+
+
+
+etable(fit9_itt, fit9_tot,
+       se.below = TRUE,
+       keep = c('treatment', 'ohp_all_ever_survey'),
+       fitstat = ~ n + r2 + f,
+       extralines = list('_^Control Mean Outcome' = fit9_control_means))
+
+```
+
+
+# Conclusion
+********************************************************************************
+
+We wrap up our conversation on instrumental variables tying back into the "gold standard" of randomized experiments. 
+Even though it may be the conceptual ideal, there are still that can occur that can bias average treatment effect estimates.
+For example, non-compliance changes $\hat{\delta}$ from ATE to ITT. 
+The closest we can get to ATE is the TOT (also called ATT), but to do so we need to use instrumental variables.
+
+Instrumental variables can be hard to identify because there are many (5) assumptions that need to be satisfied, where only the inclusion restriction is testable. 
+However, it is an incredibly powerful method because of how it can still estimate a LATE in the presence of bias from endogeniety sources like:
+
+- omitted variable bias
+- choice variables
+- multiple equations (supply and demand)
+- non-compliance

@@ -1,0 +1,225 @@
+---
+title: "Intro to R Markdown"
+author: "Julian Oolman"
+date: "Collaborated with ____________"
+output: 
+  html_document:
+    toc: yes
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Tools > Global Options > Markdown in Viewer drop down menu
+
+# Section 1
+***
+## This will one.one
+### not 1.1.2
+#### Not in table of contents
+
+# Markdown Basics
+**********************************************************
+
+Markdown is an easy-to-read text formatting language that converts plain text to a pretty document.
+R Markdown is R's version of Markdown that can incorporate, execute, and output R code in the final "knitted" document.
+To knit a document, type `Ctrl-Shift-K`.
+
+
+## Writing text
+**********************************************************
+This is how to write text in Markdown.
+Notice writing on the next line stays in the same paragraph.
+
+This is how you start a new paragraph.
+
+Wrap you words in \* to get *italics*.
+Using two \*s will produce **bolface**.
+You can combine with \_ in any order to get *__boldfaced italics__*
+
+There are other things that we can do too, like making lists.
+
+1. Item 1
+2. Item 2
+   b. Notice how we had to align in the R Markdown code
+      - You can choose whether you use numbers. or letters. but R Markdown chooses the symbols for you :(
+
+
+This is how we type inline code like `R`'s base function `plot()` is as pretty as `ggplot2`'s function `ggplot()`.
+
+## Manual Tables
+***********************************************
+
+| Region | GDP | Unemployment Rate |
+| --- | --- | --- |
+| Narnia | 10 | 5 | 
+| Hogwarts | ? | -42 |
+
+
+| Region | GDP | Unemployment Rate |
+| ---: | :--- | :---: |
+| Narnia | 10 | 5 | 
+| Hogwarts | ? | -42 |
+
+| Region     | GDP | Unemployment Rate |
+|------------|-----|------------------:|
+| **Narnia** | 10  |                 5 |
+| Hogwarts   | ?   |               -42 |
+
+
+## LaTeX Math Integration
+***************************************
+
+To write math, we can use some limited $\LaTeX$ features.
+Like if we wanted to show a regression formula inline:
+$y_i = \alpha + x_i\beta + \epsilon_i$.
+Alternatively, if we have important math, we can make it stand out:
+$$
+2+2 = 2*2 \equiv 2 \times2 = 2^2 = 4 \approx \pi\\
+$$
+Or if we want to show off knowing the geometric series identity:
+$$
+\begin{align}
+  \sum_{n=0}^\infty ar^n & = a \left( \frac{1}{1-r} \right) \tag{1.1}\\
+  & = \frac{a}{1-r} \\
+  & \text{for } |r| < 1
+\end{align}
+\frac{}{}
+$$
+
+If we want to link sections, we do this [Section 1].
+Or if we need to link a website, we do this while making sure to include https.
+A really useful [resource](https:/www.bookdown.org/yihui/rmarkdown) for additional R Markdown tips and tricks.
+
+
+## Including Images
+************************************
+
+This is how we include images in our markdown.
+[XKCD is the best!](linear_regression_2x.png)
+![XKCD is the best!](linear_regression_2x.png)
+
+
+## Writing Code
+Here is the basic to writing code chunks.
+```{r hello}
+print('hello world')
+```
+
+#@@@@ RUN INSIDE SCRIPT
+
+The first part of the curly braces tells you what language you are using and the name of the chunk.
+Then options can be set up using commas after the chunk name by setting them to `TRUE` or `FALSE`.
+Some major options all of which have default of `TRUE` are:
+
+- `include` - Whether or not to be included in the document
+- `echo` - Displays the code
+- `results` - Displays the output of the code
+- `messages` - Display messages from the functions if they have them.
+
+**NOTICE R SETUP CODE CHUNK OPTION**
+
+Be careful when working inside of the .Rmd:
+```{r caution 1}
+set.seed(474)
+df = data.frame(x = 1:5,
+                y = runif(5))
+df
+```
+
+```{r caution 2}
+df$y = df$y + 1
+df$z = c('a', 'new', 'column', 'of', 'strings')
+
+summary(df)
+```
+
+```{r, eval = FALSE}
+# If you want to include a code chunk that is not run but in the document, you can do this:
+print(b) # Produces an error
+```
+
+
+# An example assignment
+**********************************************************
+
+Below, you are going to use the Gapminder data to produce three sets of summary statistics and produce a figure.
+
+
+
+
+
+
+## Load in ggplot2 and gapminder_2007
+**********************************************************
+
+1. **[10 points]** load ggplot2 **and omit your code**
+2. **[6 points]** load in gapminder_2007 **and omit your code**
+
+
+```{r preliminary, include = FALSE}
+library(ggplot2)
+
+gm = read.csv('C:/Users/JJPWade/Dropbox/Julian/Academia/UIUC/Semester 12 Spring 2023/ECON474sp23/Data/DwD1 gapminder.csv')
+
+```
+Done, but I am not going to show you!
+
+## Produce Three Sets of Statistics
+**********************************************************
+1. **[7 points]** produce a correlation matrix **and omit your code**
+
+```{r cor mat, echo = FALSE}
+cor(gm[, c('gdpPercap_2007', 'lifeExp_2007', 'pop_2007')])
+```
+
+2. **[$\pi$ points]** obtain mean and standard deviation of the America's GDPc
+
+```{r m sd americas}
+americas = gm[gm$continent == 'Americas', ]
+m = mean(americas$gdpPercap_2007)
+m = round(m, 2)
+s = round(sd(gm[gm$continent == 'Americas', 'gdpPercap_2007']), 2)
+print(paste0("Americas' mean: ", m))
+print(paste("Americas' standrad deviation:", s))
+```
+*Notice the code chunk has multiple outputs and is therefore split in the kintted document.*
+
+
+3. **[-45 points]** Summary stats of life expectancy for countries with GDPC less than $10,000
+
+```{r poor stats}
+summary(gm[gm$gdpPercap_2007 < 10000, 'lifeExp_2007'])
+```
+
+## Plot replication
+**********************************************************
+
+1. **[5 points]** Replicate the final Gapminder plot from DwD1 section 2
+
+```{r eda, echo = FALSE}
+ggplot(gm, aes(x = log(gdpPercap_2007), y = lifeExp_2007,
+               color = continent, size = pop_2007)) +
+  geom_point(alpha = 0.5) +
+  scale_size_continuous(guide = 'none') +
+  theme_minimal() +
+  labs(x = 'log(GDP per Capita)', y = 'Life Expectancy', #######################
+       title = 'GDPc vs. Life Expectancy 2007',
+       color = 'Continent') +
+  theme(text = element_text(size = 20)) +
+  geom_text(aes(label = ifelse(pop_2007 >= quantile(pop_2007, 0.90),
+                               country, # TRUE
+                               '')),    # FALSE
+            size = 5, hjust = 0, vjust = 0, nudge_x = .1) +
+  xlim(NA, 11.7)
+
+```
+
+#Please save time by copying and pasting **your own** code.
+
+
+
+
+

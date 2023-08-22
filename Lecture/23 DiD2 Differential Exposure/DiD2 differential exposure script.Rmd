@@ -1,0 +1,286 @@
+---
+title: "DiD2 Differential Exposure Difference-in-Differences"
+subtitle: "ECON 474 Econometrics of Policy Evaluation"
+output: 
+  html_document:
+    toc: yes
+    toc_float: true
+    number_sections: true
+    theme: cerulean
+    highlight: pygments
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+This replication is going to focus on the main results of "The Role of High-Skill Labor Demand on Spatial Income Inequality: Evidence from the Dotcom Bubble."
+We are going to demonstrate:
+
+1. Creating an event study figure
+2. Estimating a differential exposure difference-in-differences with controls
+3. Perfomring an arsenal of placebo checks
+
+
+To get ourselves going, we are going to need a few more packages than normal and then we are going to load in the data as usual.
+
+```{r install, eval = FALSE}
+install.packages('latex2exp')
+```
+
+```{r preliminaries}
+library(tidyverse)
+library(fixest)
+library(stringr)   # String manipulation
+library(latex2exp) # putting LaTeX math into our figure labels
+
+df = read_csv('C:/Users/johnj/Dropbox/Julian/Academia/UIUC/Semester 12 Spring 2023/ECON474sp23/Data/DiD2 differential exposure.csv')
+head(df)
+summary(df)
+```
+
+# Event Study
+********************************************************************************
+
+
+Constructing the event study figure requires estimating an event study regression.
+We are somewhat jumping the gun here by running the event study before the main results, but I am confident that life will do its best to be okay.
+
+## Event Study Regression
+**********************************************************************
+
+The important part of an event study is that the period $t=0$ (the period just before treatment) is set to be the baseline. 
+What this means when we hop to the computer is that it will be hard coded as zero.
+
+For the regression, we need to create a variable `year_factor` that has class `factor` with the first factor set to `"1990"`.
+We are going to use the help of the function `fct_relevel()` from the `forcats` package, which is nested in the `tidyverse`.
+
+```{r year_factor}
+df = df %>%
+  mutate(year_factor = factor(year),
+         year_factor = fct_relevel(year_factor, "1990"))
+```
+
+It is easy to check if what we did actually worked.
+
+```{r year_factor check}
+df %>%
+  pull(year_factor) %>%
+  levels()
+```
+
+
+Excellent! 
+Now the next step is to estimate the event study regression.
+
+```{r event study regression}
+fit_event = feols(q90_q10_tot ~ year_factor*log(comp_90) +
+                    log(pop_90) + ba_share_90 + log(med_house_value_90),
+                  data = df, 
+                  se = 'hetero')
+etable(fit_event)
+```
+
+The next step is to grab the coefficients that correspond to `year_factorXXXX x log(comp_90)` and the respective 95% confidence interval to produce our figure.
+
+## Event Study Figure
+**********************************************************************
+
+I should point out that the package `fixest` has a function `coefplot()` that plots coefficients with the respective 95% confidence interval, but this function doesn't quite work here.
+Within `coefplot()` it is possible to select the coefficients you want, which could be useful for a different application. 
+However, as far as I am aware it is not possible to hard code in a coefficient for 1990 that is zero. 
+Even if that was possible, the coefficients we want are at both a decade and annual interval, so we will have to construct the figure manually. 
+
+Then end goal is to have a `data.frame` that has
+
+- coefficient estimates
+- coefficient 95% confidence interval upper and lower bound
+- the corresponding year
+    
+To construct this `data.frame` for plotting, we are going to use a regular expression (there are tons of resources available online if you are curious about how to use these in your own work). 
+Specifically, we will use `str_detect()` and later `str_extract()` from the `stringr` package.
+
+```{r df_event}
+# coef(fit_event)
+# confint(fit_event, se = 'hetero')
+# bind_cols(coef(fit_event), 
+#           confint(fit_event, se = 'hetero'))%>%
+#   rename(delta_k = `...1`)
+
+df_event = bind_cols(coef(fit_event), 
+          confint(fit_event, se = 'hetero')) %>%
+  rename(delta_k = `...1`)
+
+
+# row.names(df_event)
+# str_detect(row.names(df_event), "[year_factor][0-9]{4}[:]")
+df_event = df_event %>%
+  filter(str_detect(row.names(df_event), "[year_factor][0-9]{4}[:]"))
+
+as.numeric(str_extract(row.names(df_event), '[0-9]{4}'))
+df_event$year = as.numeric(str_extract(row.names(df_event), '[0-9]{4}'))
+
+```
+
+
+
+The regular expression we just wrote returns `TRUE` for strings that match a string that
+
+1. `[year_factor]` has the exact string `"year_factor"`
+2. `[0-9]{4}` that is followed by exactly four digits
+3. `[:]` which is then followed by a colon
+
+Now we can use the names of the vector we just created to extract the year.
+Since we are at it, we might as well add the zero values for 1990.
+We are going to use base R's `rbind()` function, which binds rows ignoring column names unlike `dplyr::bind_rows()`.
+
+```{r 1990}
+# adding omitted "base" year
+df_event = rbind(df_event, c(0, 0, 0, 1990)) %>%
+  arrange(year)
+df_event
+```
+
+
+Because event study figures are the most important figure in difference-in-differences, I am going to show you how to make a presentation quality figure.
+We can put \LaTeX math into the figure labs using the `TeX()` function from the `latex2exp` package. 
+Note, however, that it requires using double `\\` because the R strings are looking for things like `"\n"`. 
+The double backslash says "no, I really want a backslash here."
+
+```{r event study}
+ggplot(df_event, aes(x = year, y = delta_k, ymin = `2.5 %`, ymax = `97.5 %`)) +
+  geom_point(size = 4) +
+  geom_line(linetype = 'dashed', size = 1.4) +
+  geom_errorbar(size = 1.4) +
+  geom_hline(yintercept = 0, linetype = 'dashed') + 
+  geom_rect(xmin = 1995, xmax = 2000.25, ymin = -Inf, ymax = Inf,
+            alpha = 0.05, aes(fill = 'Dotcom\nBubble')) +
+  scale_fill_manual(values = 'black') +
+  labs(x = 'Year', y = TeX('$\\delta_k$'), 
+       title = '90-10 Total Income Ratio',
+       fill = '') +
+  theme_minimal()  +
+  theme(text = element_text(size = 20)) # must go after plot appearance theme
+```
+
+
+
+# Main Result
+********************************************************************************
+
+Recall that the main regressions use only data from 1990 and 2000 to only use information from the Dotcom period.
+To save ourselves from making mistakes, we will create a regression specific data from.
+We will also use this data to create a new variable `post` to indicate being in the post treatment period(s).
+
+```{r df_reg}
+df_reg = df %>%
+  filter(year %in% c(1990, 2000)) %>%
+  mutate(post = (year >= 2000)*1)
+```
+
+Time to run the differential exposure difference-in-differences!
+
+```{r diff e diff in diff}
+fit_main = feols(q90_q10_tot ~ post*log(comp_90) +
+                    log(pop_90) + ba_share_90 + log(med_house_value_90),
+                  data = df_reg, 
+                  se = 'hetero')
+
+etable(fit_main, se.below = TRUE)
+```
+The main result says that a 1% increase in exposure to the Dotcom bubble increased the 90-10 ratio by about 0.77. 
+To find out, let's take a look at the average pre-treatment level of income inequality.
+
+```{r effect size}
+pre_90_10 = df_reg %>%
+  filter(year == 1990) %>%
+  pull(q90_q10_tot) %>%
+  mean
+
+coef(fit_main)[7]/pre_90_10
+```
+
+This tells us that a 1% increase in exposure to the Dotcom bubble increased the 90-10 ratio by 9% for the average MSA.
+
+
+# Placebo Checks
+********************************************************************************
+
+We are going to run three robustness checks to determine if we have any confounders, if the results are only being driven by silicon valley, and to provide more evidence for parallel trends.
+
+
+## Fincial-related employment exposure placebo
+**********************************************************************
+
+One of the main threats to identification comes from the nature of the Dotcom bubble; it was a stock market bubble. 
+The results could simply be driven from MSAs with high level of pre-period computer-related employment are highly correlated with finance-related employment.
+It could be the case that the growth in income inequality is purely due to returns on investment.
+We can check this by using finance employment as a placebo.
+
+```{r finance placebo}
+feols(q90_q10_tot ~ post*log(fin_share_90) +
+                    log(pop_90) + ba_share_90 + log(med_house_value_90),
+                  data = df_reg, 
+                  se = 'hetero') %>%
+  etable(se.below = TRUE)
+```
+
+
+## Is Silicon Valley driving the results?
+**********************************************************************
+
+The U.S. has a pretty strong narrative that Silicon Valley is where everything computers happens. 
+The distribution of the exposure variable also shows that the San Jose MSA is an outlier in exposure.
+It is natural to ask if that MSA is the reason for significance.
+Fortunately, it is incredibly easy to check this.
+Simply remove the San Jose MSA from the regression.
+
+To figure out which code corresponds to the San Jose MSA, let's look at the documentation for the [`METAREA`](https://usa.ipums.org/usa-action/variables/METAREA#codes_section) variable.
+
+```{r no way San Jose}
+feols(q90_q10_tot ~ post*log(comp_90) +
+                    log(pop_90) + ba_share_90 + log(med_house_value_90),
+                  data = df_reg, 
+                  se = 'hetero',
+      subset = df_reg$metarea != 740) %>%
+  etable(fit_main, se.below = TRUE)
+```
+
+
+Some statistical significance is lost, but the estimate wihtout San Jose is still signficant and the two coefficients are not statistically distinguishable.
+
+
+## Lagged Outcome
+**********************************************************************
+
+The final robustness check we will do is to provide show that we are not simply picking up on a spurious trend, which provides some evidence in support of parallel trends.
+We will need to go back to the full data to demonstrate this.
+
+```{r df_reg_lag}
+df_reg_lag = df %>%
+  arrange(metarea, year) %>%
+  group_by(metarea) %>%
+  mutate(q90_q10_tot_lag = lag(q90_q10_tot),
+         post = (year >= 2000)*1) %>%
+  filter(year %in% c(1990, 2000))
+
+feols(q90_q10_tot_lag ~ post*log(comp_90) +
+                    log(pop_90) + ba_share_90 + log(med_house_value_90),
+                  data = df_reg_lag, 
+                  se = 'hetero') %>%
+  etable(se.below = TRUE)
+```
+
+
+Seems like we are not picking up on a spurious trend in the data!
+
+
+# Concluding Comments
+********************************************************************************
+
+
+Regardless if you are doing a traditional diff-in-diff or a differential exposure diff-in-diff, everything that we have done in this lecture are essential to supporting the empirical design. 
+Being able to plot an event study figure is just as crucial as using placebos to rule out confounders, outliers, and spurious correlations.
+These checks should be done with every analysis. 
+Moreover, placebo checks should also be used regardless of the technique you use (instrumental variables, regression discontinuity, etc.) to support your claims.

@@ -1,0 +1,249 @@
+---
+title: "IV2 Shift Shares"
+subtitle: "ECON 474 Econometrics of Policy Evaluation"
+output: 
+  html_document:
+    toc: yes
+    toc_float: true
+    number_sections: true
+    theme: cerulean
+    highlight: pygments
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+Today we estimate the labor supply elasticity using an industry-level employment shift-share following Bartik 1991.
+We are going to do so using data at the metropolitan statistical area (MSA) level.
+For example, Chicago and all of it's suburbs are considered one MSA and Champaign-Ubrana-Savoy is considered another.
+
+# Constructing Shift-Shares
+**********************************************************************************
+
+Before we begin, we are going to use three of my favorite packages:
+
+```{r packages}
+library(data.table)
+library(tidyverse)
+library(fixest)
+```
+
+The full microdata is ~2.8 GB, which is big enough that some of your computers may not be able to load it into R.
+I want to be transparent about the sample selection used in this lecture, so I am showing the code below in a code chunk where `eval = FALSE`.
+This chunk creates a trimmed version of the microdata that is ~0.3 GB, which we will use to construct the final dataset.
+
+
+```{r cleaning microdata, eval = FALSE}
+usa = fread('C:/Users/JJPWade/Dropbox/Julian/Academia/UIUC/Semester 12 Spring 2023/ECON474sp23/Data/IV2 shift_shares.csv')
+
+names(usa) = names(usa) %>% tolower
+head(usa)
+
+ss = usa %>%
+  filter(metarea > 0) %>% # doing separately b/c more efficient to reduce number of comparisons
+  filter(empstat == 1) %>%
+  filter(age >= 18 & age <= 65 & 
+           gq %in% c(1,2) & 
+           workedyr == 3 & 
+           incwage > 0 & incwage < 999998) %>%
+  filter(ind1990 > 0 & ind1990 < 900) %>%
+  group_by(metarea) %>%
+  mutate(n_metarea = n_distinct(year)) %>%
+  filter(n_metarea == 4) %>%
+  select(-statefip, -metaread, -gq, -age, -educ, -educd, -empstatd, -occ1990, -wkswork1, -uhrswork, -workedyr, -n_metarea)
+
+rm(usa)
+
+fwrite(ss, 'C:/Users/JJPWade/Dropbox/Julian/Academia/UIUC/Semester 12 Spring 2023/ECON474sp23/Data/IV2 shift_shares cleaned.csv')
+```
+
+Now, to load in the data:
+
+```{r cleaned}
+ss = fread('C:/Users/JJPWade/Dropbox/Julian/Academia/UIUC/Semester 12 Spring 2023/ECON474sp23/Data/IV2 shift_shares cleaned.csv')
+
+head(ss)
+```
+
+Excellent! 
+Before we get to creating the instruments, let's create our outcome variable $wage_{a,t}$ and our regressor $emp_{a,t}$.
+Remember that this is survey data, so we will need to account for the survey weights.
+
+```{r y and x}
+df = ss %>%
+  group_by(year, metarea) %>%
+  summarise(wage_at = weighted.mean(incwage, perwt),
+            emp_at = sum(perwt)) # the data are trimmed to be only employed people so this line is okay
+head(df)
+```
+
+One final step before creating the instruments.
+We are going to create industry$\times$MSA$\times$year employment aggregates using only tradable goods and services industries to help us out later.
+
+```{r employment aggregates}
+emp_agg = ss %>%
+  filter(ind1990 %in% c(10, 11, 31:392, 500:711, 721, 732, 800,
+                        841, 882:892)) %>%
+  group_by(year, metarea, ind1990) %>%
+  summarise(emp_ajt = sum(perwt))
+head(emp_agg)
+```
+
+
+## Shifts
+**********************************************************************
+
+Calculating the shifts requires obtaining leave-one-out national-level employment aggregates.
+This will entail us using a for loop over each MSA to omit it during aggregation.
+
+It is also requires the log employment levels of the current period minus the lagged log employment levels from the previous period.
+Fortunately, we can do all of this inside of a few chained `dplyr` functions.
+
+
+```{r shifts}
+emp_t_shift = tibble()
+a = unique(emp_agg$metarea)[1]
+for(a in unique(emp_agg$metarea)){
+  temp = emp_agg %>%
+    filter(metarea != a)
+  
+  temp = temp %>%
+    group_by(year, ind1990) %>%
+    summarise(emp_atilde_jt = sum(emp_ajt),
+              .groups = 'drop') %>%
+    mutate(metarea = a)
+  
+  emp_t_shift = bind_rows(emp_t_shift, temp)
+}
+
+emp_t_shift = emp_t_shift %>%
+  arrange(metarea, ind1990, year) %>%
+  group_by(metarea, ind1990) %>%
+  mutate(emp_atilde_jt_lag = lag(emp_atilde_jt)) %>%
+  mutate(shift = log(emp_atilde_jt) - log(emp_atilde_jt_lag)) %>%
+  select(year, ind1990, metarea, shift)
+
+head(emp_t_shift)
+```
+
+
+## Shares
+**********************************************************************
+
+Great news! 
+The shares are *super* easy calculate! 
+We just need to remember to adjust to only include data from the base year of 1980.
+
+```{r shares}
+emp_t0_share = emp_agg %>%
+  filter(year == 1980) %>%
+  group_by(ind1990) %>%
+  mutate(emp_njt = sum(emp_ajt),
+         share = emp_ajt/emp_njt) %>%
+  select(metarea, ind1990, share)
+head(emp_t0_share)
+```
+
+
+## Shift-Shares
+**********************************************************************
+
+Calculating the shift-share instrument is as simple as multiplying together the shifts and shares that we have created above and then summing them over all industries for each MSA-year pair.
+But, we need to deal with the various `NA`s that are created from lagging the employment variable.
+
+
+```{r IV}
+iv = left_join(emp_t_shift, emp_t0_share) %>%
+  na.omit() %>%
+  group_by(metarea, year) %>%
+  summarise(shift_share = sum(shift*share))
+```
+
+The final step of creating our dataset for analysis is to merge `df` with `iv`.
+Because we cannot produce an IV for the base year of 1980 due to the lagging the employment variable when creating shifts, we again need to omit the `NA`s due to being in the base year 1980.
+
+```{r final join}
+df = left_join(df, iv) %>%
+  na.omit()
+
+```
+
+
+# Labor Supply Elasticity
+**********************************************************************************
+
+
+The goal of this lab is to estimate the four equations for IV:
+
+OLS:
+
+$$log(wage_{a,t}) = \beta_a + \beta_1 log(emp_{a,t}) + u_{a,t}$$
+
+reduce form:
+
+$$log(wage_{a,t}) = \rho_a + \rho_1 z_{a,t} + \zeta_{a,t}$$
+
+first stage:
+
+$$log(emp_{a,t}) = \pi_a + \pi_1z_{a,t} + \xi_{a,t}$$
+
+and the structural equation:
+
+$$log(wage_{a,t}) = \alpha_a + \delta \widehat{log(emp_{a,t})} + \epsilon_{a,t}$$
+
+This lab will also show you that indeed $\delta = \frac{\rho_1}{\pi_1}$, which is why we need a strong first stage.
+
+
+Each of the regressions above needs to account for the fact that the average wage varies across MSAs.
+You have two options to do this:
+
+1. (Don't do this because it is very computationally inefficient): include an `as.factor(metarea)` in the RHS of the formula
+2. (Do this because it is very computationally efficient): use the `feols()` specific formula to be `y ~ x | metarea`. If you need to estimate 2SLS then use `y ~ 1 | metarea | x ~ z`. Replace `y`, `x`, and `z` appropriately.
+
+So!
+
+1. Estimate the OLS model, and store it as an object.
+
+```{r OLS}
+fit_ols = feols(log(wage_at) ~ log(emp_at) | metarea, df, se = 'hetero')
+```
+
+2. Estimate the reduced form, and store it as an object.
+
+```{r reduced form}
+fit_rf = feols(log(wage_at) ~ shift_share | metarea, df, se = 'hetero')
+```
+
+3. Estimate the first stage, and store it as an object.
+
+```{r first stage}
+fit_fs =feols(log(emp_at) ~ shift_share | metarea, df, se = 'hetero')
+```
+
+4. Estimate the 2SLS model, and store it as an object.
+
+```{r 2sls}
+fit_2sls = feols(log(wage_at) ~ 1 | metarea | log(emp_at) ~ shift_share,
+                 data = df, se = 'hetero')
+```
+
+5. Produce an `etable()`  of the above four fitted regressions. Have the table show the number of observations, the R-squared, and the F-stat. Use the `headers` argument to name the regressions appropriately.
+
+
+```{r etable}
+
+etable(fit_ols, fit_rf, fit_fs, fit_2sls,
+       se.below = TRUE,
+       fitstat = c('n', 'r2', 'f'),
+       headers = c('OLS', 'Reduced Form', 'First Stage', '2SLS'))
+```
+
+6. show that the 2SLS estimate is the ratio of reduced form over the first stage.
+
+```{r 2sls ratio}
+coef(fit_rf)/coef(fit_fs)
+
+coef(fit_2sls)
+```

@@ -1,0 +1,283 @@
+---
+title: "RE3 Experimental Design"
+subtitle: "ECON 474 Econometrics of Policy Evaluation"
+output: 
+  html_document:
+    toc: yes
+    toc_float: true
+    number_sections: true
+    theme: cerulean
+    highlight: pygments
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+Almost all economic analaysis, whether regression or theory-based uses the t-statistic as the statistical test. 
+In regression, that corresponds to significance test on a coefficient on treatment.
+Therefore, our object of interest when designing an experiment is the t-statistic on said coefficient:
+
+$$ t_{\hat{\beta}_{T}}^* = \frac{\hat{\beta}_T - \beta_T}{se(\hat{\beta}_T)}$$
+
+where $\beta_T$ is the null hypothesis value, which is almost exclusively set to $\beta_T = 0$ in practice.
+Consequently, we will be focusing on having a large t-stat effect size in the `pwr` package.
+
+Speaking of which, let's load it in along with the `tidyverse`:
+
+```{r pwr install, eval = FALSE}
+install.packages("pwr")
+```
+
+```{r pwr tidyverse}
+library(pwr)
+library(tidyverse)
+```
+
+
+# The `pwr` Package
+********************************************************************************
+
+There are many kinds of power tests that can be run using the `pwr` package:
+
+```{r pwr fns, eval = FALSE}
+help(package = 'pwr')
+```
+
+However, we are going to focus on the two t-test functions
+
+1. `pwr.t.test()`: same control and treatment group size
+2. `pwr.t2n.test()`: differeing control and treatment sizes
+
+## Basic Implementation
+**********************************************************************
+
+One way to boil down econometrics is trying to measure effects, where some effects are larger than others.
+While a somewhat subjective pursuit, [Cohen (1988)](https://www.taylorfrancis.com/books/mono/10.4324/9780203771587/statistical-power-analysis-behavioral-sciences-jacob-cohen)
+put together some rules of thumb for us for small, medium, and large effect sizes for various tests.
+This is exactly what the package `pwr` uses to help with experimental design.
+
+Since we will be performing a t-test, we can determine the size of $t_{\hat{\beta}_{T}}^*$ we need using `cohen.ES()`. 
+The first argument of this function is `test`, and the second is `size`.
+See `?cohen.ES` for more details.
+So what does Dr. Cohen  consider to be a *small* effect size for a t-test?
+
+```{r cohen small}
+cohen.ES(test = 't', size = 'small')
+```
+This corresponds to:
+
+$$ 0.2 = t^* = \frac{\hat{\beta} - \beta_{H_0}}{se(\hat{\beta})}$$
+
+What about a large effect size?
+
+```{r cohen large}
+cohen.ES(test = 't', size = 'large')
+```
+
+Each `pwr.XX.test()` function has the same four arguments:
+
+1. sample size
+2. effect size
+3. significance level
+4. power of test
+
+The functions are designed to leave one of the arguments empty and solve for it using the other three specified arguments.
+
+We are going to specify the effect size, significance level, and the power to determine the sample side which we need.
+Intuitively, we want to specify how confident we are in our test to know whether or not our estimates are true. 
+We also want to specify the effect size to something conservative (small), so that way we can be sure to detect it.
+Then we can know the minimum sample size that we need to be sure of whether or not there is an affect.
+
+Experiments are costly to run in terms of time and money.
+Moreover, you might not get the opportunity to run your experiment again even if your results are noisy from too small of a sample. 
+You want to make sure you get it right the first time.
+
+For the `pwr.t.test()` function, we also need to specify two additional arguments:
+
+5. the `type` of t-test
+6. the `alternative` hypothesis type
+
+Because randomized experiments have a control group **and** a treatment group, the type of test (5.) is `"two.sample"`.
+Since the results are almost exclusively analysed in a regression and since no one seems to specify anything other than the default alternative hypothesis, the `alternative` is set to `"two.sided"`.
+
+Here's how to do implement the power analysis to determine the sample size using a small effect size with the conventional 95% confidence and 0.8 probability of rejecting a false null hypothesis:
+
+```{r pwr t test}
+pwr.t.test(d = 0.2,
+           sig.level = 0.05,
+           power = 0.8,
+           type = 'two.sample',
+           alternative = 'two.side')
+```
+This test would require 394 people in the treatment group and another 394 in the control group.
+To be clear, we would need a total of 788 people in the experiment!
+
+Now suppose we are in a situation where it is costly to treat individuals, so we are limited to only treating 200 people. 
+What size does our control group need to be?
+We can determine this by using the function `pwr.t2n.test()` and set the argument `n1 = 200`.
+Note that this question is inherently a two-sample design, so that is the underlying type of test in `pwr.t2n.test()`. 
+
+```{r pwr t2n test}
+pwr.t2n.test(n1 = 200,
+             d = 0.2,
+           sig.level = 0.05,
+           power = 0.8)
+```
+Holy cow! 10,487 people in the control group!
+
+## Sample Size and Power Relationship
+**********************************************************************
+
+Truly, a small effect size requires many observations.
+Let's demonstrate this relationship visually.
+We will do so by looping over 100 power levels that range from small to large effect sizes and then plot the required control group size.
+Recall from above that a `cohen.ES()` returned 0.2 for a small effect size and 0.8 for a large effect size.
+
+```{r size power loop}
+d = seq(0.2, 0.8, length = 100)
+n2 = NULL # a placeholder for our results
+for(d_i in d){
+  pwr_test = pwr.t2n.test(n1 = 200,
+                          d = d_i,
+                          sig.level = 0.05,
+                          power = 0.8,
+                          alternative = 'two.sided')
+  n2 = c(n2, pwr_test$n2)
+}
+
+df_plot = tibble(`Effect Size` = d,
+                 `Control Group Size` = n2)
+```
+
+Now let's take a look at those results!
+
+```{r size power}
+ggplot(df_plot, aes(x = `Effect Size`, y = `Control Group Size`)) +
+  geom_line() +
+  geom_vline(xintercept = c(0.2, 0.5, 0.8), linetype = 'dashed') +
+  annotate("text", x = c(0.2, 0.5, 0.8), y = 10^3.5, 
+           label = c('Small', 'Medium', 'Large'), hjust = -0.2) +
+  xlim(0.1, 0.9)
+```
+
+For funsies, let's look at this figure with a log10 transformation of the y-axis.
+
+```{r log size power}
+ggplot(df_plot, aes(x = `Effect Size`, y = `Control Group Size`)) +
+  geom_line() +
+  scale_y_continuous(trans = 'log10') +
+  geom_vline(xintercept = c(0.2, 0.5, 0.8), linetype = 'dashed') +
+  annotate("text", x = c(0.2, 0.5, 0.8), y = 10^3.5, 
+           label = c('Small', 'Medium', 'Large'), hjust = -0.2) +
+  xlim(0.1, 0.9)
+```
+
+# Lab - Thornton 2008
+********************************************************************************
+
+We will work with the data from Thornton 2008 for the lab and will make some simplifying assumptions to work with the `pwr` package.
+To begin:
+
+1. Load in the data `Thornton 2008 main sample.csv` as `df`
+2. `mutate()` a new variable called `incentive` using `ifelse()` or `case_when()` such that when `any == 1` it equals `"incentive"` and `"no incentive"` otherwise.
+
+```{r thornton load}
+df = read_csv("C:/Users/johnj/Dropbox/Julian/Academia/UIUC/Semester 12 Spring 2023/ECON474sp23/Data/RE1 Thornton 2008 main sample.csv")
+
+df = df %>%
+  mutate(incentive = ifelse(any == 1, 'incentive', 'no incentive'))
+```
+
+
+## Possible Sample Design (post-results)
+**********************************************************************
+
+Suppose the sample estimates from the experiment are the true population coefficients.
+Create an object `eff_size` that is equal to the effect size of this experiment.
+In this case we will plug in to the t-test:
+
+$$H_0: \beta = \beta_{\text{no incentive}}$$
+
+Specifically,
+
+1. perform a regression of `got` on `incentive` without an intercept term by add `-1` to the formula and save it as an object called `fit`
+2. print a summary of the regression
+3. save the vector of coefficients as `b` using the function `coef()` wrapped around `fit`
+    - this vector contains the estimated coefficient and the null hypothesis coefficient
+4. estimate the standard deviation by using the function `sd()` on the variable `any`
+5. use the t-statistic formula to estimate the "true" effect size and save it as `eff_size`
+
+
+```{r post effect size}
+fit = lm(got ~ incentive - 1, data = df)
+summary(fit)
+
+b = coef(fit)
+sd = sd(df$any)
+
+eff_size = (b[1] - b[2])/sd
+```
+
+Assume that the control and treatment groups have the same size.
+Using the appropriate function from the `pwr` function, determine the total sample size using the "true" effect size calculated above, a significance level of 0.05, a power level of 0.8, and an alternative of `"greater"`.
+
+
+```{r post-result required size greater}
+pwr.t.test(d = eff_size,
+             sig.level = 0.05,
+             power = 0.8,
+             type = 'two.sample', # b/c treatment and control groups
+             alternative = "greater")
+```
+
+How and to what do the number of observations required change to when the alternative is specified as a two-sided test?
+
+```{r post-result required size two-sided}
+pwr.t.test(d = eff_size,
+             sig.level = 0.05,
+             power = 0.8,
+             type = 'two.sample', # b/c treatment and control groups
+             alternative = "two.sided")
+```
+
+
+## Minimum Sample Size (pre-results)
+**********************************************************************
+
+Now, suppose we are in the world before the randomized experiment was conducted.
+Let's put ourselves in Dr. Thornton's shoes and try to deduce what she might have been aiming for when designing her experiment.
+Given the number of observations, use `pwr.t.test()` to determine the significance level and power she may have been aiming for with a small treatment effect
+
+To do set:
+
+1. set `d` to a small treatment effect
+2. set `type` to two sample test
+3. set `alternative` to a two sided test
+4. try `sig.level` over values of 0.05, 0.01, and 0.001
+5. try `power` over values 0.8, 0.9, 0.99
+
+
+```{r min sample pre}
+nrow(df)
+
+cohen.ES(test = 't', size = 'small')
+
+grid = expand.grid(d = 0.2,
+            sig.level = c(0.05, 0.01, 0.001),
+            power = c(0.8, 0.9, 0.99),
+            n = NA)
+
+for(i in 1:nrow(grid)){
+  grid$n[i] = ceiling(
+    pwr.t.test(d = grid$d[i],
+               sig.level = grid$sig.level[i],
+               power = grid$power[i],
+               type = 'two.sample',
+               alternative = 'two.sided')$n
+  )*2
+}
+grid %>% 
+  arrange(desc(n))
+```

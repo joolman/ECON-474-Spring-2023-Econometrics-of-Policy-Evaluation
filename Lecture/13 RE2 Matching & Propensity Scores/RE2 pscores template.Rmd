@@ -1,0 +1,273 @@
+---
+title: "RE2 Approximate Matching: Propensity Scores"
+subtitle: "ECON 474 Econometrics of Policy Evaluation"
+output: 
+  html_document:
+    toc: yes
+    toc_float: true
+    number_sections: true
+    theme: cerulean
+    highlight: pygments
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+**Overview**:
+
+The exercise for today is to create a control group using approximate matching on observable variables. 
+We can never match on unobserved variables, so it is up to us as the econometricians to consider and be transparent about the implicit biases these create.
+We are creating the control group by estimating **propensity scores of being treated** using data with observations that are treated and untreated via logistic regression.
+
+We have a unique setting: we have data from the National Supported Work Demonstration (NSW) job-training program
+randomized experiment to produce and unbiased estimate of the average treatment effect (ATE). 
+Once estimated, we are then going to suppose that we do not have a control group by creating one using the Current Population Survey (CPS).
+
+
+**Caution**: I would only recommend creating a control group from an entirely different *data source* as a measure of last resort. 
+Using one data source for the treated group and another for the control group will likely (although not necessarily) introduce sample selection bias. 
+The people participating in the NSW experiment are probably (again, not necessarily) different than those who are in the CPS.
+
+Today, we are going to do the following:
+
+1. Obtain the ATE using the randomized experiment data
+2. Follow [Lalonde (1986)](https://www.jstor.org/stable/1806062#metadata_info_tab_contents) naïve methodology to
+    i. produce a biased estimate of ATE using the entire CPS as a control group
+    ii. produce a balance table to show poor control group construction
+3. Use approximate matching with propensity scores following [Dehejia and Wahbha (2002)](https://direct.mit.edu/rest/article/84/1/151/57311/Propensity-Score-Matching-Methods-for) to construct a better control group with the CPS
+
+## Preliminaries 
+**********************************************************************
+
+We are going to need these packages for today:
+
+- `haven`: allows for loading "foreign" data. We will need `read_dta()` to load Stata specific data
+- `MatchIt`: for some assistance pscore matching with `matchit()`
+- `tidyverse`: because how could you not?
+
+If you haven't installed them, do so in the console.
+
+```{r packages}
+
+```
+
+We are grabbing the data for today's lecture from the GitHub created for the textbook.
+However, for some reason the function `download.file()` corrupts `.dta` files, so we are going to perform a work around.
+
+```{r loading data}
+
+```
+
+Well would you look at that!
+The data are already cleaned for us **AND** they have the exact same variables!
+Life just became so easy!
+
+For reference, the dictionary for the variables are:
+
+- `data_id`: the source of the data
+- `treat`: an indicator for received training treatment
+- `educ`: years of schooling
+- `black`: an indicator for being black
+- `hisp`: an indicator for being Hispanic
+- `nodegree`: an indicator for having no college degree
+- `re74`, `re75`, `re78`: real earnings from 1974, 1975, and 1978 respectively
+
+# Unbiased ATE Benchamrk
+********************************************************************************
+
+Because the NSW was a randomized experiment, we can simply calculate the ATE using:
+
+$$E[\delta] = E[Y_i | D = 1] - E[Y_i | D = 0]$$
+or in our finite sample case:
+
+$$\hat{\delta} = \frac{1}{N^T}\sum_{treated} y_i - \frac{1}{N^C}\sum_{control} y_i$$
+
+```{r ate benchmark}
+
+```
+
+
+
+# Lalonde (1986)
+********************************************************************************
+
+Before we can replicate the biased estimates, we need to construct the "full" data set that contains both NSW and CPS data.
+The whole point is to consider the case where we do not have a control group from a randomized experiment, so we are firstly going to `filter()` to only have observations such that `treat == 1` from the `nsw` data.
+We can then `bind_rows()` of `cps` because the variables have perfect naming overlap.
+
+```{r full}
+
+```
+
+## Naïve ATE
+**********************************************************************
+
+Time for the biased ATE:
+
+```{r ate lalonde}
+
+```
+
+Holy cow! 
+The bias is so bad that we have a sign reversal!
+This is entirely due to selection bias because: $E[Y^1 | D = 1] \neq E[Y^0 | D = 0]$.
+
+## Balance Table
+**********************************************************************
+
+Before we create the balance table, we need to create two more variables that are used in Dehejia and Wahbha (2002): an indicator for being **not** employed (this is different than being unemployed) in 1974 and another for 1975.
+They do so by inferring non-employment from having zero earnings. 
+
+```{r not employed}
+
+```
+
+Now, time for the balance table.
+
+
+```{r balance table}
+
+```
+
+We have a $\huge{\text{HUGE}}$ selection bias!
+All variables but one are statistically different between treatment and control groups!
+
+
+# Approximate Matching
+********************************************************************************
+
+Do not fret my fellow econometrician; all hope is not lost.
+It is time to reach into our econometric tool kit and pull out propensity score matching.
+
+## Obtaining Propensity Scores
+**********************************************************************
+
+Estimating propensity scores is super simple in `R`. 
+All there is to do is estimate a regression, but specifically a logistic regression with a generalized linear model `glm()` specified to a logistic regression by setting the argument `family` equal to `binomial`.
+
+Following Dehejia and Wahbha (2002), we will use the following regrssion:
+
+
+$$
+\begin{align}
+    \text{log odds}\widehat{(D_i)} & = \beta_0 + \beta_1 age_i + \beta_2 age^2_i + \beta_3 age_i^3 +\\
+    & \beta_4 educ_i + \beta_5 educ_i^2 + \beta_6 black_i + \beta_7 hisp_i + \\
+    & \beta_8 re74_i + \beta_{9} re75_i + \beta_{10} u74_i + \beta_{11} u75_i +\\
+    & \beta_{12} educ_i*re74_i 
+\end{align}
+$$
+
+
+Thankfully, we can take advantage of a few features of the `formula` objects to save us from needing to write out all of those variables.
+
+```{r pscore estimation}
+
+```
+
+Excellent!
+To obtain the propensity scores ($\widehat{p(x_i)}$), we just need to call the `fitted.value` from the fitted model.
+Let's add the scores to our data frame.
+
+```{r pscore}
+
+```
+
+Here the propensity scores $p(x_i)$ are just a function of all of the 13 variables mentioned above. 
+Recall that the propensity score is a sufficient statistic to condition on according the Propensity Score Theorem.
+We can therefore use the scores to visually examine treatment and control group balance.
+
+To do so, we are going to create side-by-side histograms of the treatment and control group histograms in `ggplot2` . 
+But first, let's add one variable in advance to help with plotting labels.
+*Note: you can achieve the same result using features of* `ggplot2` *without creating a variable*.
+
+```{r ggplot pscore balance}
+
+```
+
+Yeah, the overlap is not the best...
+
+## Propensity Score Matching
+**********************************************************************
+
+We will perform our approximate matching using the nearest neighbors method.
+That is, for each treated observation we will obtain $n$ control buddies.
+Here, we will use $n=5$ buddies.
+
+We *could* match the nearest neighbors ourselves, but that sounds outrageously difficult.
+Let's do ourselves a favor and take advantage of the `matchit()` function from the `MatchIt()` package.
+This will look very similar to the `glm()` specification above.
+
+```{r matchit5}
+
+```
+
+I don't know about you, but that seems pretty easy to me.
+
+Now we come to one of the major concerns of propensity score matching: sample size:
+
+```{r sample size}
+
+```
+
+This application of propensity score matching has left us with 10% of the original data!
+
+Nonetheless, we can still produce an estimate of the ATE.
+However, we are going to need use a regression because of the covariate imbalance even though we have matched with propensity scores.
+
+```{r ate matchit5 wrong}
+
+```
+
+Now check this out:
+
+```{r ate matchit5}
+
+```
+
+We are **much** closer to the benchmark unbiased estimate.
+In fact, the estimate is (barely) statistically indistinguishable from the unbiased ATE at the 95% confidence level because the unbiased estimate is within [1693 - 2\*574.6, 1693 + 2\*574.6] (where 2 $\approx$ 1.96).
+Something to note is that we still have extreme propensity cores in our data, which may have leverage on our estimates.
+
+
+
+## Propensity Score Trimming
+**********************************************************************
+
+Much like a standard outlier observation, observations with extreme propensity scores can have leverage on estimates in finite sample coefficient estimation.
+The standard recommendation is to trim the propensity scores such that they are $\hat{p} \in [0.1, 0.9]$.
+How do our data look?
+
+```{r outlier pscores}
+
+```
+
+We have a large share of both treated and untreated observations with low propensity scores. 
+They *might* have an affect on estimates.
+To find out, we are going to trim the data to be without the extreme propensity scores.
+
+
+```{r match trim}
+
+```
+
+Great news! 
+The coefficient is effectively unchanged!
+However, it has become barely significant at the 95% confidence level.
+The answer to this should be immediately apparent from the very nature of trimming:
+
+```{r match trim obs}
+
+```
+
+
+So, what do you do now that you have the untrimmed and trimmed estimates that produced the same estimate?
+In this particular case, I would present the results from the untrimmed results because it has more power (more observations) and mention that the trimmed estimates produce nearly identical point estimates.
+
+# Conclusion
+********************************************************************************
+
+Propensity score matching is a powerful tool for approximately matching treated observations to controlled observations. 
+Propensity score matching is typically used in conjunction with another technique such as difference-in-differences because there is skepticism that propensity scores alone can satisfy the conditional independence assumption (CIA) required to identify causal effects from selection on unobserved variables.
+However, every application is case specific so it is up to your institutional knowledge as researcher to determine if approximate matching closes all backdoors (see The Mixtape 5.3.3 for a discussion).

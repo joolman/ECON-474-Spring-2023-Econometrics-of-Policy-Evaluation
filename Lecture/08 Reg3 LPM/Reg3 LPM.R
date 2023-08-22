@@ -1,0 +1,117 @@
+# 1. Copy and paste the code from last lecture up the end of estimating marginal
+#     effects for fit2
+# 2. create an OLS equivalent for fit1 and fit2
+#     - in fit2 replace the interactions (`*`) with additions (`+`)
+# 3. compare the logistic regression marginal effects to the OLS marginal effects
+#     hint: call `$estimate` from the logit marginal effects to reduce output
+# 4. From the two OLS regressions, create an object yhat1 and yhat2 that are the
+#     `$fitted.values`
+#     - using `mean()` what proportion of the times is yhat < 0 or is yhat > 1?
+#     - are you concerned about bias in either of these LPMs?
+
+##======================##
+## -------------------- ##
+#### 0) Preliminaries ####
+## -------------------- ##
+##======================##
+library(tidyverse)
+library(fixest)
+library(marginaleffects)
+
+acs = read_csv('Data/Reg2 ACS 2021 - Illinois.csv')
+
+names(acs) = acs %>% names %>% tolower
+
+##=================##
+## --------------- ##
+#### 1) Cleaning ####
+## --------------- ##
+##=================##
+acs = acs %>%
+  filter(gq %in% 1:2 &         # not living in group quarters: https://usa.ipums.org/usa-action/variables/GQTYPE#codes_section
+           ownershp != 0 &     # either a home owner or renter
+           age >= 16 & 
+           empstat > 0 &       # defined employment status
+           ftotinc < 9999999 & # defined total family income
+           migrate1 > 0) %>%   # defined migration status
+  mutate(in_lf = (empstat != 3)*1,
+         renter = (ownershp == 2)*1,
+         has_children = (nchild > 0)*1,
+         female = (sex == 2)*1,
+         married = (marst <= 3)*1,
+         black = (race == 2)*1,
+         asian = (race %in% 4:5)*1,
+         hispanic = (hispan > 1)*1,
+         degree = case_when(educd == 116 ~ 'Ph.D.',
+                            educd == 115 ~ 'Professional',
+                            educd == 114 ~ "Master's",
+                            educd == 101 ~ "Bachelor's",
+                            educd == 81 ~ "Associate's",
+                            educd >= 63 ~ 'High School',
+                            educd >= 2 ~ 'None'),
+         yos = case_when(educd %in% 2:12  ~ 0,
+                         educd == 14 ~ 1,
+                         educd == 15 ~ 2,
+                         educd == 16 ~ 3,
+                         educd == 17 ~ 4,
+                         educd == 22 ~ 5,
+                         educd == 23 ~ 6,
+                         educd == 25 ~ 7,
+                         educd == 26 ~ 8,
+                         educd == 30 ~ 9,
+                         educd == 40 ~ 10,
+                         educd == 50 ~ 11,
+                         educd %in% c(61:65)  ~ 12,
+                         educd == 71 ~ 13,
+                         educd == 81 ~ 14,
+                         educd == 101 ~ 16,
+                         educd == 114 ~ 18,
+                         educd == 115 ~ 20,
+                         educd == 116 ~ 21),
+         moved_ly = (migrate1 > 1)*1) %>%
+  na.omit()
+
+##============================##
+## -------------------------- ##
+#### 2) Logistic Regression ####
+## -------------------------- ##
+##============================##
+
+
+## --------------------- ##
+#### 2.1) logit vs OLS ####
+## --------------------- ##
+
+# A simple logit
+fit1_logit = glm(in_lf ~ age, data = acs, family = 'binomial')
+fit1_ols = lm(in_lf ~ age, data = acs)
+
+# Let's add some more variables
+fit2_logit = glm(in_lf ~ age + density + yos +
+             female + has_children + married + 
+             black + asian + hispanic +
+             moved_ly + ftotinc,
+           data = acs, family = 'binomial')
+fit2_ols = lm(in_lf ~ age + density + yos +
+                female + has_children + married + 
+                black + asian + hispanic +
+                moved_ly + ftotinc,
+              data = acs)
+
+
+# Marginal effect comparison
+marginaleffects(fit1_logit, newdata = 'mean')
+fit1_ols
+
+marginaleffects(fit2_logit, newdata = 'mean')$estimate
+fit2_ols
+
+
+## ---------------------- ##
+#### 2.2) fitted values ####
+## ---------------------- ##
+yhat1 = fit1_ols$fitted.values
+yhat2 = fit2_ols$fitted.values
+
+mean(yhat1 < 0 | yhat1 > 1)
+mean(yhat2 < 0 | yhat2 > 1)

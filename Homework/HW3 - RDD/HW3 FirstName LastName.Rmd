@@ -1,0 +1,257 @@
+---
+title: "HW3 Regression Discontinuity Design (100 points)"
+author: "FirstName LastName"
+date: "Collaborated with ____________"
+output: 
+  html_document:
+    toc: yes
+    # toc_float: true
+    number_sections: true
+    theme: cerulean
+    highlight: pygments
+---
+
+<style>
+  div.blue {background-color: #cee4f2 !important;
+            border-radius: 5px;
+            padding: 20px;}
+</style>
+
+
+[Lee, Moretti, and Butler (2004)](https://academic.oup.com/qje/article/119/3/807/1938834) set out to answer the question whether voters *affect* policies or *elect* policies when voting for politicians.
+Affecting policies is an economic concept that competition between political candidates for citizen votes causes the candidates to vote for policies that are more politically central than they prefer (e.g. less polarized).
+Electing a policies is the idea that candidates are going to do what they want, so citizens vote for the politician with as close as possible views (sometimes referred to as the less of two evils).
+
+The authors cleverly address this question by using the fact that politicians can be elected more than once.
+If a politician votes polarized in their **first** term and is then reelected, then we know voters are *electing* policies.
+Conversely, if a politician votes relatively more polarized in their second term relative to their first, we know that voters actually do *affect* policies.
+
+The authors collect a long time series measure on how liberal a candidate voted from the Americans for Democratic Action (ADA).
+These data link to elected official in the House of Representatives and the Senate.
+Each congressperson is the provided an index on how liberal they voted.
+Consequently, the authors focus on democratic victories.
+
+However, for a causal identification they need a randomized experiment to obtain causal estimates.
+They overcome this obstacle by analyzing only close elections as a quasi natural experiment.
+The intuition is that what makes those at the cutoff of 50% of the votes win or lose an election is random turnout of just a few voters.
+Because randomization is determined by a cutoff, they use a regression discontinuity design.
+
+# **[10 Points]** Setup
+*********************************************************************************
+
+Before you begin, there is an important **technical note** to point out. 
+The authors refer to two arbitrary, adjacent time periods as $t$ and $t+1$, but the data refers to these periods as `lagvariablename` and `variablename`.
+Ah, consistency...
+
+To get started:
+
+1. **[1 points]** Load in the following packages:
+    - `haven`, `tidyverse`, `fixest`, and `cowplot`
+2. **[1 points]** Load in the data as `df`
+3. **[6 points]** Create the variables in `df`
+    - `bin_lagdemovoteshare` by using the function `cut_width()` with the first argument set to `lagdemvoteshare`, the argument `width` set to `0.01`, the argument `center` set to `0.505`, and the `closed` argument equal to `"left"`.
+    - `plot_lagdemvoteshare` by using `floor()` with the argument set equal to `lagdemvoteshare` multiplied by `100` and the divide the whole thing by `100`, which produces the lower bound of `bin_lagdemovoteshare`
+    - `lagdemovoteshare_center` by subtracting `0.5` from `lagdemovoteshare`
+    - `eligible` by dividing the variable `votingpop` by the variable `totpop`
+4. **[2 points]** Create the data frame `df_reg` such that `lagdemovoteshare` $\in (0.48, 0.52)$
+
+
+
+```{r loading}
+
+```
+
+# **[55 Points]** Identification Checks
+********************************************************************************
+
+The regression discontinuity estimates (as with any other technique) only have a causal interpretation if the identifying assumptions are satisfied. 
+It is up to the researcher to *provide evidence* that these assumptions are not violated.
+In this section you are going to test whether the continuity assumption and the representative control group assumption are satisfied.
+
+
+## **[15 Points]** Continuity Assumption: Running Variable Density Plot
+**********************************************************************
+
+In all of the figures created in this assignment, we will be using **lo**cal polynomial regr**ess**ion via `loess()` to fit our data points. 
+The way local regression works is that a regression is fit at each observation taking into account *some* of the observations to the left and right of it. 
+These regressions are then stitched together to produce a fitted line ($\hat{y_i}$).
+
+To produce the density figure:
+
+1. **[3 points]**  create a data frame `df_hist` from `df` by
+    - using `group_by()` on `plot_lagdemovoteshare` and `lagdemocrat`
+    - then `summarise()` a new variable call `freq` by counting the number of observations using `n()`
+    - and finally filter out all extreme elections such that the vote share is strictly greater than zero and strictly less than one
+2. **[7 points]** using `ggplot()` on `df_hist`
+    - set `x` equal to `plot_lagdemovoteshare`, `y` to `freq`, and `group` to `lagdemocrat`
+    - produce a scatter plot with `geom_point()`
+    - add a local regression with `stat_smooth()` with the `method` argument set to `"loess"`, the `span` argument to `0.8` (use 80% of the surrounding data when estimating a local regression at each observation), and the `level` argument (confidence level band) to `0.95`
+    - label both axis and title appropriately
+
+
+```{r density figure}
+
+
+```
+
+
+
+**[5 points]** Do you see evidence of bunching/cutoff manipulation? How do you know?
+
+**Answer:**
+
+
+
+
+## **[40 Points]** Covariate Balance
+**********************************************************************
+
+The next step is to show that we have good counterfactual groups.
+We can never show this for all variables because some of them are fundamentally unobservable.
+Nonetheless, we will show this for four observable variables that could be potential confounders.
+To save ourselves from some work later on, we will also the outcome variables.
+
+1. **[5 points]** create the data frame `df_plot` from `df` by
+    - using `group_by()` on `plot_lagdemvoteshare` and `lagdemocrat`
+    - `summarise()` `across()` the 
+        - balance variables `realincome` (real income), `pcthighscl` (share of population with a high school degree), `pctblack` (share of population that is black), and `eligble` (share of the population that can vote). 
+        - outcome variables `score` (ADA index), `lagscore`, and `democrat`
+        - because some of these variables are not recorded for all congress people, set the second argument of across equal to `~ mean(.x, na.rm = TRUE)`
+    - `filter()` to only have vote shares strictly between 0.25 and 0.75
+    
+
+```{r x bal fig df}
+
+```
+
+
+To construct the covariate balance figures, we are going to produce them in a `for()` loop.
+
+2. **[20 points]** To construct the figures:
+    - create an object `y_var` that contains the name of the variables as strings
+    - create an object `y_lab` that contains respective y-axis label names
+    - create an empty `list()` named `fig_x_bal`
+    - write a `for()` loop that goes from 1 through the `length()` of the number of `y_var` variables that adds new items to `fig_x_bal` where each item is 
+        - a figure created with `ggplot()` on `df_plot` that uses `aes_string()` with the argument `x` set to the string of `plot_lagdemvoteshar`, `y` set to the appropriate element of of `y_var`, and `group` set to the string of `lagdemocrat`
+        - produce a scatter plot
+        - add a fitted local regression line using the same arguments as the density figure above
+        - use `labs()` to label the x-axis as the same label for each iteration and the y-axis label to the appropriate element of `y_var`
+    - Finally, use `plot_grid()` by calling each element of `fig_x_bal` separately and then setting the `ncol` argument to 2.
+
+
+```{r x bal fig}
+
+```
+
+
+**[5 points]** Based upon the figure, are you concerned about imbalance on any of the variables? Why?
+
+**Answer:**
+
+
+While RDD figures are convincing, all RDD estimates come from estimating regressions.
+The data frame we created earlier contains only elections that were very close to the cutoff, so we only need to use a linear function of the running variable.
+
+3. **[4 points]** run four regressions at once saved as `fit_x_bal` by 
+  - using `feols()` on `df_reg`
+  - with the y variable set equal to all four observed variables using `c()`
+  - the x variables set equal to the product (`*`) of `lagdemocrat` and `lagdemvoteshare_center`
+  - and cluster on `id` (all state-district-year combinations)
+
+```{r x bal reg}
+
+```
+
+
+4. **[6 points]** Produce an `etable()` with `fit_x_bal` by 
+    - firstly creating an object called `tab_dict` using `c()` that will be set equal to the `dict` argument of `etable()`, which creates a mapping from the variable name to an appropriate label (e.g. `"realincome" = "Real Income"`) for the four outcome variables and `lagdemocrat`
+    - then seting the `etable()`  standard errors below
+    - set `dict` equal to `tab_dict`
+    - keep only the variable lagdemocrat by setting the `keep` argument equal to `"^YourLabelForlagdemocrat$"`
+        - *Technical note: the* `keep` *argument takes regular expressions, not just strings. What this means is that it will try to find all variable labels that match the string you input. To get exactly the string you input, you must start the string with a* `^` *which means "begins with" and then end the string with* `$` *which means "ends with".*
+        - *Regular expressions are incredibly powerful and worth learning if you wish to continue your programming education.*
+    - show only the number of observations and $R^2$
+
+
+```{r x bal tab}
+
+```
+
+
+
+
+# **[10 Points]**  First Stage
+********************************************************************************
+
+Congressional elections in the US are won by popular vote. 
+If a candidate wins 50% or more of the votes, they are elected to office.
+The setting that we are working with has perfect compliance, which is why we were able to split on the variable `lagdemocrat` instead of creating a variable that an indicator for being beyond the threshold.
+I am not going to make you show this, so instead, show me that you have read this section by putting the words "perfect compliance" boldfaced in their own paragraph below to receive all or nothing points for this section. 
+
+
+
+# **[25 points]** Close Election Results
+********************************************************************************
+
+
+Remember we are testing two different theories:
+
+- elect: a politician votes polarized in their **first** term and is then reelected
+- affect: a politician votes relatively more polarized in their second term relative to their first
+
+Through a theoretical model of elections, they show that this is equivalent to multiplying regression coefficients together.
+Specifically, "elect" is the coefficient of $ADA_{t}$ on $DEM_t$ multiplied by $DEM_{t+1}$ on on $DEM_t$.
+"A/Effect" is what remains from the coefficient of $ADA_{t+1}$ on $DEM_t$ after "elect" has been subtracted.
+
+
+1. **[14 points]** Produce a figure using the same arguments as the covariate balance figure, except for use the three outcome variables `score`, `lagscore`, and `democrate`, and set the `ncol` argument of `plot_grid` equal to 3.
+
+```{r outcome fig}
+
+```
+
+
+The results of this figure should speak for themselves.
+Nonetheless, it is time to get some precise numbers with statistical tests.
+
+2. **[6 points]** Using the **same setup** as the covariate balance tests
+    - use `feols()` once to estimate the three regressions and save it as `fit_outcomes`
+    - add outcome labels to the existing `tab_dict` object
+    - output an `etable()` of the three regressions
+    
+
+
+```{r outcomes reg}
+
+```
+
+
+Below is the main table reproduced from the paper. 
+Your estimates will not exactly match, but they should be within about a standard error from each other.
+
+
+|               | (1) $ADA_{t+1}$ | (2) $ADA_t$ | (3) $DEM_{t+1}$ | (4) Elect = (2)*(3) | (5) Effect = (1)-(4) |
+|---------------|:---------------:|:-----------:|:---------------:|:-------------------:|:--------------------:|
+| Estimated Gap |       21.2      |     47.6    |       0.48      |        22.84        |         -1.64        |
+|               |      (1.9)      |    (1.3)    |      (0.02)     |        (2.2)        |         (2.0)        |
+| n             |       915       |     915     |       915       |         915         |          915         |
+
+
+**[3 points]** Print your *coefficient* estimates for column (4) and column (5) by using `fit_outcomes` and `coef()`
+
+
+```{r elect vs effect}
+
+```
+
+Now, you might be asking yourself "how did the authors get their standard error estimates?"
+The answer is I don't know.
+The original replication code in [tab1_4.do](https://eml.berkeley.edu/~moretti/data3.html) on Enrico Moretti's website only shows the estimation of the first three regressions.
+Moreover, a [published paper by Patrick Button](https://journals.sagepub.com/doi/full/10.1177/1091142117721739) that replicates Lee et al. (2004) with advanced techniques also mentions the same thing that neither the published nor working paper describe how the standard errors are estimated.
+Regardless, Dr. Button does show (using techniques beyond the scope of this class) that the standard errors do seem reasonable. 
+
+So!
+
+3. **[2 points]** Assuming the standard errors of the original paper apply to our estimates on "elect" and "effect", do voters elect, affect, or both elect and affect policies?
+
+**Answer:**

@@ -1,0 +1,203 @@
+---
+title: "DiD2 Differential Exposure Difference-in-Differences"
+subtitle: "ECON 474 Econometrics of Policy Evaluation"
+output: 
+  html_document:
+    toc: yes
+    toc_float: true
+    number_sections: true
+    theme: cerulean
+    highlight: pygments
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+This replication is going to focus on the main results of "The Role of High-Skill Labor Demand on Spatial Income Inequality: Evidence from the Dotcom Bubble."
+We are going to demonstrate:
+
+1. Creating an event study figure
+2. Estimating a differential exposure difference-in-differences with controls
+3. Perfomring an arsenal of placebo checks
+
+
+To get ourselves going, we are going to need a few more packages than normal and then we are going to load in the data as usual.
+
+```{r install, eval = FALSE}
+install.packages('latex2exp')
+```
+
+```{r preliminaries}
+
+```
+
+# Event Study
+********************************************************************************
+
+
+Constructing the event study figure requires estimating an event study regression.
+We are somewhat jumping the gun here by running the event study before the main results, but I am confident that life will do its best to be okay.
+
+## Event Study Regression
+**********************************************************************
+
+The important part of an event study is that the period $t=0$ (the period just before treatment) is set to be the baseline. 
+What this means when we hop to the computer is that it will be hard coded as zero.
+
+For the regression, we need to create a variable `year_factor` that has class `factor` with the first factor set to `"1990"`.
+We are going to use the help of the function `fct_relevel()` from the `forcats` package, which is nested in the `tidyverse`.
+
+```{r year_factor}
+
+```
+
+It is easy to check if what we did actually worked.
+
+```{r year_factor check}
+
+```
+
+
+Excellent! 
+Now the next step is to estimate the event study regression.
+
+```{r event study regression}
+
+```
+
+The next step is to grab the coefficients that correspond to `year_factorXXXX x log(comp_90)` and the respective 95% confidence interval to produce our figure.
+
+## Event Study Figure
+**********************************************************************
+
+I should point out that the package `fixest` has a function `coefplot()` that plots coefficients with the respective 95% confidence interval, but this function doesn't quite work here.
+Within `coefplot()` it is possible to select the coefficients you want, which could be useful for a different application. 
+However, as far as I am aware it is not possible to hard code in a coefficient for 1990 that is zero. 
+Even if that was possible, the coefficients we want are at both a decade and annual interval, so we will have to construct the figure manually. 
+
+Then end goal is to have a `data.frame` that has
+
+- coefficient estimates
+- coefficient 95% confidence interval upper and lower bound
+- the corresponding year
+    
+To construct this `data.frame` for plotting, we are going to use a regular expression (there are tons of resources available online if you are curious about how to use these in your own work). 
+Specifically, we will use `str_detect()` and later `str_extract()` from the `stringr` package.
+
+```{r df_event}
+
+```
+
+The regular expression we just wrote returns `TRUE` for strings that match a string that
+
+1. `[year_factor]` has the exact string `"year_factor"`
+2. `[0-9]{4}` that is followed by exactly four digits
+3. `[:]` which is then followed by a colon
+
+Now we can use the names of the vector we just created to extract the year.
+Since we are at it, we might as well add the zero values for 1990.
+
+```{r 1990}
+
+```
+
+
+Because event study figures are the most important figure in difference-in-differences, I am going to show you how to make a presentation quality figure.
+We can put \LaTeX math into the figure labs using the `TeX()` function from the `latex2exp` package. 
+Note, however, that it requires using double `\\` because the R strings are looking for things like `"\n"`. 
+The double backslash says "no, I really want a backslash here."
+
+```{r event study}
+
+```
+
+
+
+# Main Result
+********************************************************************************
+
+Recall that the main regressions use only data from 1990 and 2000 to only use information from the Dotcom period.
+To save ourselves from making mistakes, we will create a regression specific data from.
+We will also use this data to create a new variable `post` to indicate being in the post treatment period(s).
+
+```{r df_reg}
+
+```
+
+Time to run the differential exposure difference-in-differences!
+
+```{r diff e diff in diff}
+
+```
+The main result says that a 1% increase in exposure to the Dotcom bubble increased the 90-10 ratio by about 0.77. 
+To find out, let's take a look at the average pre-treatment level of income inequality.
+
+```{r effect size}
+
+```
+
+This tells us that a 1% increase in exposure to the Dotcom bubble increased the 90-10 ratio by 9% for the average MSA.
+
+
+# Placebo Checks
+********************************************************************************
+
+We are going to run three robustness checks to determine if we have any confounders, if the results are only being driven by silicon valley, and to provide more evidence for parallel trends.
+
+
+## Fincial-related employment exposure placebo
+**********************************************************************
+
+One of the main threats to identification comes from the nature of the Dotcom bubble; it was a stock market bubble. 
+The results could simply be driven from MSAs with high level of pre-period computer-related employment are highly correlated with finance-related employment.
+It could be the case that the growth in income inequality is purely due to returns on investment.
+We can check this by using finance employment as a placebo.
+
+```{r finance placebo}
+
+```
+
+
+## Is Silicon Valley driving the results?
+**********************************************************************
+
+The U.S. has a pretty strong narrative that Silicon Valley is where everything computers happens. 
+The distribution of the exposure variable also shows that the San Jose MSA is an outlier in exposure.
+It is natural to ask if that MSA is the reason for significance.
+Fortunately, it is incredibly easy to check this.
+Simply remove the San Jose MSA from the regression.
+
+To figure out which code corresponds to the San Jose MSA, let's look at the documentation for the [`METAREA`](https://usa.ipums.org/usa-action/variables/METAREA#codes_section) variable.
+
+```{r no way San Jose}
+
+```
+
+
+Some statistical significance is lost, but the estimate wihtout San Jose is still signficant and the two coefficients are not statistically distinguishable.
+
+
+## Lagged Outcome
+**********************************************************************
+
+The final robustness check we will do is to provide show that we are not simply picking up on a spurious trend, which provides some evidence in support of parallel trends.
+We will need to go back to the full data to demonstrate this.
+
+```{r df_reg_lag}
+
+```
+
+
+Seems like we are not picking up on a spurious trend in the data!
+
+
+# Concluding Comments
+********************************************************************************
+
+
+Regardless if you are doing a traditional diff-in-diff or a differential exposure diff-in-diff, everything that we have done in this lecture are essential to supporting the empirical design. 
+Being able to plot an event study figure is just as crucial as using placebos to rule out confounders, outliers, and spurious correlations.
+These checks should be done with every analysis. 
+Moreover, placebo checks should also be used regardless of the technique you use (instrumental variables, regression discontinuity, etc.) to support your claims.

@@ -1,0 +1,135 @@
+---
+title: "RDD Fuzzy"
+subtitle: "ECON 474 Econometrics of Policy Evaluation"
+output: 
+  html_document:
+    toc: yes
+    toc_float: true
+    number_sections: true
+    theme: cerulean
+    highlight: pygments
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Preliminary Setup
+********************************************************************************
+
+To get us started, let's load in `tidyverse`, `fixest`, and the data.
+
+
+```{r loading please wait}
+
+```
+
+
+
+# School Enrollment and Class Sizes
+********************************************************************************
+
+
+Before we get to running regressions, we are going to visually determine if the Maimonides rule actually has any bite.
+We will do so by plotting average classroom size for every each cohort enrollment size.
+But before we can make the plot, it will be useful to define the Maimonides rule as a `function` to create the plot and for creating the instrument later on.
+
+
+```{r maimonides}
+
+```
+
+Because we are plotting the average classroom size for each cohort size instead of estimating a regression, we need to create a new `data.frame` that is an aggregation of the regression data.
+
+
+```{r df_plot}
+
+```
+
+
+## Figure Ia
+**********************************************************************
+
+We are hoping that the observed average class size versus cohort enrollment size does actually follow the predicted class size if schools are following the Maimonides rule. 
+To verify this, we are going to replicate Figure Ia, somewhat like a visual first stage.
+
+```{r figure 1a}
+
+```
+
+
+
+
+
+
+# Lab: Fuzzy RDD and You
+********************************************************************************
+
+Now it's your turn! 
+Add a new variable `iv_maimonides` to the regression data frame (`df`) by plugging the variable `enrollment` into the `mainmonides_rule()` function.
+
+```{r maimonides var}
+
+```
+
+
+
+## Biased OLS
+**********************************************************************
+
+
+We are next going to run **three regressions in one line**.
+Using `feols()`, run a regression of `avgmath` on `classize`, `pct_disadv`, and `enrollment` by plugging the $X$ variables into the `csw()` function (cumulative stepwise) separated by a comma.
+Cluster the standard erros by `schlcode`.
+Save the regression as an object named `fit_ols`
+
+```{r}
+
+```
+
+
+## Reduced Form
+**********************************************************************
+
+Do exactly the same steps as the previous subsection, except for estimate the reduced form.
+Save the reduced from as an object named `fit_iv_rf`
+
+
+```{r iv reduced form}
+
+```
+
+## Fuzzy RDD
+**********************************************************************
+
+Time to estimate your first fuzzy RDD!
+Still using `avgmath` as the $Y$ variable, this time plug `pct_disadv` and `enrollment` into `csw0()`.
+Specify the endogenous variable and instrument appropriately.
+
+```{r 2sls}
+
+```
+
+
+## Comparing Results
+**********************************************************************
+
+Produce an etable over your nine regression (three objects) with standard errors set below; show the number of observations, $R^2$, and F-statistic; and `order` the variables such that `Intercept`, `classize` and `iv_maimonides` comes first.
+
+```{r etable}
+
+```
+
+
+1. Compare across the specifications as controls are added. Do you think that the percent of students disadvataged and cohorot enrollment size are omitted varaibles? Why or why not?
+
+**Answer**:
+
+2. Figure Ia suggested that we have a strong first stage. Does the estimated first stage agree?
+
+**Answer**:
+
+3. Compare the naïve regression in column 1 to the fully specified fuzzy RDD in column 9. What are the policy implications from the coefficient estimates on classroom size from the two columns? 
+
+**Answer**:

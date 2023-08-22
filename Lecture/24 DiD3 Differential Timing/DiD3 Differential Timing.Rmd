@@ -1,0 +1,163 @@
+---
+title: "DiD3 Differential Timing Difference-in-Differences"
+subtitle: "ECON 474 Econometrics of Policy Evaluation"
+output: 
+  html_document:
+    toc: yes
+    toc_float: true
+    number_sections: true
+    theme: cerulean
+    highlight: pygments
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+As always, we are going to begin by loading in some packages and the data.
+While we are at it, we can discuss what variables are in the data.
+
+```{r preliminaries}
+
+```
+
+
+
+
+# Event Study: Figure 2a-ish
+********************************************************************************
+
+The variable that indicates post-treatment status is `cdl`, which stands for Castle Doctrine Law.
+The authors defined this variable to be the proportion of the year in which the law applies.
+In other words, it is not a binary variable:
+
+```{r cdl note}
+
+```
+
+However, this is not an issue for event study figures because we force the baseline time period just before treatment to be zero (or in this case, when treatment is not active for the entire year).
+We are going create the variable `event_time` for our regression as a factor in a few steps, the last of which will use the function `forcats::fct_relevel()` to create the baseline event time period.
+
+*Note that* `event_time` *is the equivalent to* `post`. *That is, it only exists for treated states and not for untreated states*.
+
+```{r event df prep}
+
+```
+Time to run the differential timing difference-in-differences event study regression!
+Remember, we are using the two-way fixed effects version of the standard difference-in-differences regression.
+
+Throughout the paper, the authors estimate regressions weighted by the average state population from 2000-2010 and cluster the standard errors by state.
+The clustering will be automatic from specifying the fixed effects, however, we need to manually specify the weighted regression.
+
+
+```{r event reg}
+
+```
+
+The next step is to create a data frame to create the figure.
+Our regression only estimates the event time coefficients, so we do not need to trim them.
+Additionally, we can grab the event time directly from the variable names using the function `stringr::str_sub()`.
+
+```{r event df plot}
+
+```
+
+Now for the figure!
+
+```{r event plot}
+
+```
+
+The post treatment side appears to have a level shift, but is statistically insignificant at the 5% level. 
+The authors reduce some of the statistical noise later on by adding controls that are predictive of the outcome variable.
+
+The left hand side of the figure significantly dips below zero. 
+What's going on there?
+
+## Unbalanced Event Time Panel
+**********************************************************************
+
+Firstly, the panel is balanced.
+
+```{r balanced year panel}
+
+```
+
+Specifically, the data are balanced in year-time.
+Because different states were treated in different years, the data are not balanced in event time:
+
+
+```{r unbalanced event time panel}
+
+```
+
+Typically the thing to do in this situation is to trim the observations to only have a balanced event-time panel (or at least a mostly balanced panel), but the authors do not do this.
+
+The consequence of not trimming comes immediately from the event figure.
+The pre-treatment side of the figure is statistically less than zero from a few observations.
+That means the estimate will be upward biased.
+To oversimplify, we have $\hat{\delta} = treatment - control - 2$, where 2 is a **positive** number I arbitrarily chose.
+
+
+
+# Lab
+********************************************************************************
+
+Now it's your turn!
+
+## Main Results: Table 5 Columns 1-3
+**********************************************************************
+
+1. Create an object `fit1_2` that is two regressions using
+    - `l_homicide` as the outcome
+    - `cdl` as the outcome
+    - fixed effects using `csw()` where the first argument is the two-way fixed effects and the second argument is the interaction only between `region` and `year`
+    - weighted by `castle$popwt`
+2. Create an object `fit3` that is set up exactly the same as the second regression
+    - add the controls `l_police`, `unemployrt`, `poverty`, `l_income`, `l_prisoner`, `l_lagprisoner`,  `l_exp_subsidy`, `l_exp_pubwelfare`,  `blackm_15_24`, `whitem_15_24`, `blackm_25_44`, `whitem_25_44`
+3. put the two objects into an `etable()` with the argument `keep` set equal to `"cdl"`
+    - optional (but you should definitely do this in professional settings): use the `extralines` argument of `etable()` to indicate which regressions have "time-varying controls"
+
+```{r main results}
+
+```
+
+
+## Robustness Checks - Table 4 Column 3
+**********************************************************************
+
+The authors consider alternative mechanisms that could be driving their main findings by exploring the relationship between CDL laws and crimes that should be unrelated. 
+
+All in one line:
+
+1. Use the third specification from the previous table in `feols()` with the outcome specified using `c()` wrapped around the four outcomes: `l_larceny`, `l_motor`, `l_robbery`, `l_assault`
+2. use `%>%` to chain on `etable()` (which automatically inputs the regression as the first argument) and specify the argument `keep` equal to `"cdl"`.
+
+
+```{r robustness}
+
+```
+
+
+Did you find evidence that the CDL affected crimes that should be unrelated to the law?
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
